@@ -120,7 +120,7 @@ def run_benchmark(model, args):
     word_dict = paddle.dataset.imdb.word_dict()
 
     print("load word dict successfully")
-
+    
     dict_dim = len(word_dict)
     data = fluid.layers.data(
         name="words",
@@ -148,13 +148,16 @@ def run_benchmark(model, args):
     place = fluid.CPUPlace() if args.device == 'CPU' else fluid.GPUPlace(0)
     exe = fluid.Executor(place)
     exe.run(fluid.default_startup_program())
-    for it, pass_id in enumerate(xrange(args.pass_num)):
-        accuracy.reset(exe)
-        if iter == args.iterations:
+    iterator = 0
+    for pass_id in xrange(args.pass_num):
+        if iterator == args.iterations:
             break
+        accuracy.reset(exe)
         for data in train_reader():
             chopped_data = chop_data(
                 data, chop_len=args.seq_len, batch_size=args.batch_size)
+            if len(data) < args.batch_size : continue
+
             tensor_words, tensor_label = prepare_feed_data(chopped_data, place)
 
             loss, acc = exe.run(
@@ -163,8 +166,13 @@ def run_benchmark(model, args):
                       "label": tensor_label},
                 fetch_list=[avg_cost] + accuracy.metrics)
             pass_acc = accuracy.eval(exe)
+            
+            iterator += 1
             print("Iter: %d, loss: %s, acc: %s, pass_acc: %s" %
-                  (it, str(loss), str(acc), str(pass_acc)))
+                  (iterator, str(loss), str(acc), str(pass_acc)))
+
+            if iterator == args.iterations:
+                break
 
 
 if __name__ == '__main__':

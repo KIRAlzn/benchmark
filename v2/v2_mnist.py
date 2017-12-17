@@ -122,10 +122,11 @@ def run_benchmark(model, args):
     cost = paddle.layer.classification_cost(input=predict, label=label)
     parameters = paddle.parameters.create(cost)
 
-    optimizer = paddle.optimizer.Momentum(
-        learning_rate=0.1 / 128.0,
-        momentum=0.9,
-        regularization=paddle.optimizer.L2Regularization(rate=0.0005 * 128))
+    optimizer = paddle.optimizer.Adam(beta1=0.9, beta2=0.999)
+    #optimizer = paddle.optimizer.Momentum(
+    #    learning_rate=0.1 / 128.0,
+    #    momentum=0.9,
+    #    regularization=paddle.optimizer.L2Regularization(rate=0.0005 * 128))
 
     trainer = paddle.trainer.SGD(cost=cost,
                                  parameters=parameters,
@@ -135,23 +136,25 @@ def run_benchmark(model, args):
     with open('params_pass_0.tar', 'r') as f:
         v2_fluid_init_parameters(parameters, f, seed=SEED, dtype=DTYPE)
 
+    class Namespace: pass
+    ns = Namespace()
+    ns.start= time.clock()
     def event_handler(event):
         if isinstance(event, paddle.event.EndIteration):
-            #if event.batch_id % 100 == 0:
-            print("Pass %d, Batch %d, Cost %f, %s"%(event.pass_id, event.batch_id, event.cost, event.metrics))
-        if isinstance(event, paddle.event.EndPass):
-            # save parameters
-            with open('params_pass_%d.tar' % event.pass_id, 'w') as f:
-                trainer.save_parameter_to_tar(f)
+           #if event.batch_id % 100 == 0:
+           end = time.clock()
+           dir(event.metrics)
+           print("pass=%d, batch=%d, loss=%f, error=%f, elapse=%f" % (event.pass_id, event.batch_id, event.cost,event.metrics.values()[0], (end - ns.start) / 1000))
+           ns.start = time.clock()
 
+        if isinstance(event, paddle.event.EndPass):
             result = trainer.test(reader=paddle.batch(
                 paddle.dataset.mnist.test(), batch_size=128))
             print("Test with Pass %d, Cost %f, %s\n" % (event.pass_id, result.cost, result.metrics))
 
     trainer.train(
         reader=paddle.batch(
-            paddle.reader.shuffle(
-                paddle.dataset.mnist.train(), buf_size=BATCH_SIZE * 64),
+            paddle.dataset.mnist.train(),
             batch_size=BATCH_SIZE),
         event_handler=event_handler,
         num_passes=PASS)

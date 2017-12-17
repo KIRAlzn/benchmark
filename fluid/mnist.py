@@ -72,10 +72,7 @@ def cnn_model(data):
     predict = fluid.layers.fc(
         input=conv_pool_2,
         size=SIZE,
-        act="softmax",
-        param_attr=fluid.param_attr.ParamAttr(
-            initializer=fluid.initializer.NormalInitializer(
-                loc=0.0, scale=scale, seed=SEED)))
+        act="softmax")
     return predict
 
 
@@ -109,8 +106,7 @@ def run_benchmark(model, args):
 
     cost = fluid.layers.cross_entropy(input=predict, label=label)
     avg_cost = fluid.layers.mean(x=cost)
-    opt = fluid.optimizer.AdamOptimizer(
-        learning_rate=0.001, beta1=0.9, beta2=0.999)
+    opt = fluid.optimizer.AdamOptimizer(beta1=0.9, beta2=0.999)
     opt.minimize(avg_cost)
 
     accuracy = fluid.evaluator.Accuracy(input=predict, label=label)

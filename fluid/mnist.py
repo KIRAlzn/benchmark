@@ -12,6 +12,8 @@ import paddle.v2.fluid.profiler as profiler
 
 SEED = 1
 DTYPE = "float32"
+# random seed must set before configuring the network.
+fluid.default_startup_program().random_seed = SEED
 
 
 def parse_args():
@@ -25,7 +27,7 @@ def parse_args():
     parser.add_argument(
         '--device',
         type=str,
-        default='GPU',
+        default='CPU',
         choices=['CPU', 'GPU'],
         help='The device type.')
     parser.add_argument(
@@ -41,6 +43,8 @@ def parse_args():
 
 
 def print_arguments(args):
+    vars(args)['use_nvprof'] = (vars(args)['use_nvprof'] and
+                                vars(args)['device'] == 'GPU')
     print('-----------  Configuration Arguments -----------')
     for arg, value in sorted(vars(args).iteritems()):
         print('%s: %s' % (arg, value))
@@ -118,7 +122,7 @@ def run_benchmark(model, args):
     train_reader = paddle.batch(
         paddle.dataset.mnist.train(), batch_size=args.batch_size)
 
-    place = fluid.CPUPlace()
+    place = fluid.CPUPlace() if args.device == 'CPU' else fluid.GPUPlace(0)
     exe = fluid.Executor(place)
 
     exe.run(fluid.default_startup_program())

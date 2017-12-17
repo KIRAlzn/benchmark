@@ -155,12 +155,21 @@ def run_benchmark(model, args):
             for p in parameters:
                 # print("parameters:", parameters.get(p))
                 para = parameters.get(p)
-                print("para min:%f, max:%f, max_abs:%f:" % (para.min(), para.max(),  max(para.min(), para.max(), key=abs)))
+                print("para min:%f, max:%f, max_abs:%f:" %
+                      (para.min(), para.max(), max(para.min(),
+                                                   para.max(),
+                                                   key=abs)))
 
                 # grad = parameters.get_grad(p)
                 # print("gradients:", grad)
                 # print("gradients max abs:" + str(
                 #     max(grad.min(), grad.max(), key=abs)))
+            # get data
+            output = event.gm.getLayerOutputs([
+                '__conv_pool_0___conv', '__conv_pool_0___pool',
+                '__conv_pool_1___conv', '__conv_pool_1___conv',
+                '__conv_pool_1___pool'
+            ])
 
         if isinstance(event, paddle.event.EndPass):
             result = trainer.test(reader=paddle.batch(

@@ -12,7 +12,8 @@ import paddle.v2.fluid.profiler as profiler
 
 SEED = 1
 DTYPE = "float32"
-
+BATCH_SIZE=128
+PASS=5
 
 def parse_args():
     parser = argparse.ArgumentParser("mnist model benchmark.")
@@ -81,7 +82,7 @@ def v2_fluid_init_parameters(parameters,
 def cnn_model(data):
     # first conv layer
     conv_pool_1 = paddle.networks.simple_img_conv_pool(
-        input=img,
+        input=data,
         filter_size=5,
         num_filters=20,
         num_channel=1,
@@ -136,9 +137,8 @@ def run_benchmark(model, args):
 
     def event_handler(event):
         if isinstance(event, paddle.event.EndIteration):
-            if event.batch_id % 100 == 0:
-                print "Pass %d, Batch %d, Cost %f, %s" % (
-                    event.pass_id, event.batch_id, event.cost, event.metrics)
+            #if event.batch_id % 100 == 0:
+            print("Pass %d, Batch %d, Cost %f, %s"%(event.pass_id, event.batch_id, event.cost, event.metrics))
         if isinstance(event, paddle.event.EndPass):
             # save parameters
             with open('params_pass_%d.tar' % event.pass_id, 'w') as f:
@@ -146,8 +146,7 @@ def run_benchmark(model, args):
 
             result = trainer.test(reader=paddle.batch(
                 paddle.dataset.mnist.test(), batch_size=128))
-            print "Test with Pass %d, Cost %f, %s\n" % (
-                event.pass_id, result.cost, result.metrics)
+            print("Test with Pass %d, Cost %f, %s\n" % (event.pass_id, result.cost, result.metrics))
 
     trainer.train(
         reader=paddle.batch(

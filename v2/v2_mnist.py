@@ -75,8 +75,10 @@ def v2_fluid_init_parameters(parameters,
     for pname in tar_param.names():
         if pname in parameters.names() and pname not in exclude_params:
             shape = tar_param.get(pname).shape
-            para = paddle_random_normal(
-                shape, scale=scale, seed=seed, dtype=dtype)
+            para = np.zeros(shape)
+            if 'bias' not in pname:
+                para = paddle_random_normal(
+                    shape, scale=scale, seed=seed, dtype=dtype)
             parameters.set(pname, para)
 
 
@@ -152,20 +154,21 @@ def run_benchmark(model, args):
                   (event.pass_id, event.batch_id, event.cost,
                    event.metrics.values()[0], (end - ns.start) / 1000))
             ns.start = time.clock()
+            #with open('params_pass_%d.tar' % event.pass_id, 'w') as f:
+            #    trainer.save_parameter_to_tar(f)
+            #output = event.gm.getLayerOutputs([
+            #    '__conv_pool_0___conv', '__conv_pool_0___pool',
+            #    '__conv_pool_1___conv', '__conv_pool_1___conv',
+            #    '__conv_pool_1___pool', '__fc_layer_0__', '__cost_0__'
+            #])
 
-            output = event.gm.getLayerOutputs([
-                '__conv_pool_0___conv', '__conv_pool_0___pool',
-                '__conv_pool_1___conv', '__conv_pool_1___conv',
-                '__conv_pool_1___pool', '__fc_layer_0__', '__cost_0__'
-            ])
-
-            for p in parameters:
-                # print("parameters:", parameters.get(p))
-                para = parameters.get(p)
-                print("para min:%f, max:%f, max_abs:%f:" %
-                      (para.min(), para.max(), max(para.min(),
-                                                   para.max(),
-                                                   key=abs)))
+            #for p in parameters:
+            #    # print("parameters:", parameters.get(p))
+            #    para = parameters.get(p)
+            #    print("para min:%f, max:%f, max_abs:%f:" %
+            #          (para.min(), para.max(), max(para.min(),
+            #                                       para.max(),
+            #                                       key=abs)))
 
                 # grad = parameters.get_grad(p)
                 # print("gradients:", grad)

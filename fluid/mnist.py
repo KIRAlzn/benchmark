@@ -9,6 +9,7 @@ import time
 import paddle.v2 as paddle
 import paddle.v2.fluid as fluid
 import paddle.v2.fluid.profiler as profiler
+from paddle.v2.fluid.io import get_params
 
 SEED = 1
 DTYPE = "float32"
@@ -25,7 +26,7 @@ def parse_args():
     parser.add_argument(
         '--device',
         type=str,
-        default='GPU',
+        default='CPU',
         choices=['CPU', 'GPU'],
         help='The device type.')
     parser.add_argument(
@@ -54,7 +55,7 @@ def cnn_model(data):
         num_filters=20,
         pool_size=2,
         pool_stride=2,
-        act="relu")
+        act="relu")       
     conv_pool_2 = fluid.nets.simple_img_conv_pool(
         input=conv_pool_1,
         filter_size=5,
@@ -63,16 +64,20 @@ def cnn_model(data):
         pool_stride=2,
         act="relu")
 
+
     # TODO(dzhwinter) : refine the initializer and random seed settting
     SIZE = 10
     input_shape = conv_pool_2.shape
     param_shape = [reduce(lambda a, b: a * b, input_shape[1:], 1)] + [SIZE]
-    scale = (2.0 / (param_shape[0]**2 * SIZE))**0.5
+    scale = 1.0 #(2.0 / (param_shape[0]**2 * SIZE))**0.5
 
     predict = fluid.layers.fc(
         input=conv_pool_2,
         size=SIZE,
-        act="softmax")
+        act="softmax",
+        param_attr=fluid.param_attr.ParamAttr(
+            initializer=fluid.initializer.NormalInitializer(
+                loc=0.0, scale=scale, seed=SEED)))
     return predict
 
 
@@ -127,13 +132,14 @@ def run_benchmark(model, args):
                 map(lambda x: x[0].reshape([1, 28, 28]), data)).astype(DTYPE)
             y_data = np.array(map(lambda x: x[1], data)).astype("int64")
             y_data = y_data.reshape([len(y_data), 1])
-
+            param = get_params(exe)
             start = time.clock()
             outs = exe.run(fluid.default_main_program(),
                            feed={"pixel": img_data,
                                  "label": y_data},
                            fetch_list=[avg_cost] + accuracy.metrics)
             end = time.clock()
+        
             loss = np.array(outs[0])
             acc = np.array(outs[1])
             print("pass=%d, batch=%d, loss=%f, error=%f, elapse=%f" %

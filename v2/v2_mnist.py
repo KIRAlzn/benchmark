@@ -12,8 +12,9 @@ import paddle.v2.fluid.profiler as profiler
 
 SEED = 1
 DTYPE = "float32"
-BATCH_SIZE=128
-PASS=5
+BATCH_SIZE = 128
+PASS = 5
+
 
 def parse_args():
     parser = argparse.ArgumentParser("mnist model benchmark.")
@@ -136,26 +137,37 @@ def run_benchmark(model, args):
     with open('params_pass_0.tar', 'r') as f:
         v2_fluid_init_parameters(parameters, f, seed=SEED, dtype=DTYPE)
 
-    class Namespace: pass
+    class Namespace:
+        pass
+
     ns = Namespace()
-    ns.start= time.clock()
+    ns.start = time.clock()
+
     def event_handler(event):
         if isinstance(event, paddle.event.EndIteration):
-           #if event.batch_id % 100 == 0:
-           end = time.clock()
-           dir(event.metrics)
-           print("pass=%d, batch=%d, loss=%f, error=%f, elapse=%f" % (event.pass_id, event.batch_id, event.cost,event.metrics.values()[0], (end - ns.start) / 1000))
-           ns.start = time.clock()
+            #if event.batch_id % 100 == 0:
+            end = time.clock()
+            dir(event.metrics)
+            print("pass=%d, batch=%d, loss=%f, error=%f, elapse=%f" %
+                  (event.pass_id, event.batch_id, event.cost,
+                   event.metrics.values()[0], (end - ns.start) / 1000))
+            ns.start = time.clock()
+            for p in parameters:
+                print("parameters:", parameters.get(p))
+                grad = parameters.get_grad(p)
+                print("gradients:", grad)
+                print("gradients max abs:" + str(
+                    max(grad.min(), grad.max(), key=abs)))
 
         if isinstance(event, paddle.event.EndPass):
             result = trainer.test(reader=paddle.batch(
                 paddle.dataset.mnist.test(), batch_size=128))
-            print("Test with Pass %d, Cost %f, %s\n" % (event.pass_id, result.cost, result.metrics))
+            print("Test with Pass %d, Cost %f, %s\n" %
+                  (event.pass_id, result.cost, result.metrics))
 
     trainer.train(
         reader=paddle.batch(
-            paddle.dataset.mnist.train(),
-            batch_size=BATCH_SIZE),
+            paddle.dataset.mnist.train(), batch_size=BATCH_SIZE),
         event_handler=event_handler,
         num_passes=PASS)
 

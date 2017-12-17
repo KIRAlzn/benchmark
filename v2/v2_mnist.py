@@ -153,9 +153,9 @@ def run_benchmark(model, args):
                    event.metrics.values()[0], (end - ns.start) / 1000))
             ns.start = time.clock()
             for p in parameters:
-                print("parameters:", parameters.get(p))
+                # print("parameters:", parameters.get(p))
                 grad = parameters.get_grad(p)
-                print("gradients:", grad)
+                # print("gradients:", grad)
                 print("gradients max abs:" + str(
                     max(grad.min(), grad.max(), key=abs)))
 

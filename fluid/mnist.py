@@ -119,8 +119,8 @@ def run_benchmark(model, args):
     cost = fluid.layers.cross_entropy(input=predict, label=label)
     avg_cost = fluid.layers.mean(x=cost)
     avg_cost = fluid.layers.scale(x=avg_cost, scale=128.0)
-    #opt = fluid.optimizer.AdamOptimizer(beta1=0.9, beta2=0.999)
-    opt = fluid.optimizer.SGD(learning_rate=0.01)
+    opt = fluid.optimizer.AdamOptimizer(beta1=0.9, beta2=0.999)
+    #opt = fluid.optimizer.SGD(learning_rate=0.01)
  
     opt.minimize(avg_cost)
 

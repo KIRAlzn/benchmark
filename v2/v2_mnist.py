@@ -124,8 +124,8 @@ def run_benchmark(model, args):
 
     cost = paddle.layer.classification_cost(input=predict, label=label)
     parameters = paddle.parameters.create(cost)
-    optimizer = paddle.optimizer.Momentum(momentum=0,learning_rate=0.01)
-    #   optimizer = paddle.optimizer.Adam(beta1=0.9, beta2=0.999)
+    #optimizer = paddle.optimizer.Momentum(momentum=0,learning_rate=0.01)
+    optimizer = paddle.optimizer.Adam(beta1=0.9, beta2=0.999)
     #optimizer = paddle.optimizer.Momentum(
     #    learning_rate=0.1 / 128.0,
     #    momentum=0.9,

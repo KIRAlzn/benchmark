@@ -13,13 +13,12 @@ import paddle.v2.fluid.profiler as profiler
 SEED = 1
 DTYPE = "float32"
 
-
 def parse_args():
     parser = argparse.ArgumentParser("mnist model benchmark.")
     parser.add_argument(
         '--batch_size', type=int, default=128, help='The minibatch size.')
     parser.add_argument(
-        '--iterations', type=int, default=35, help='The number of minibatches.')
+        '--iterations', type=int, default=200, help='The number of minibatches.')
     parser.add_argument(
         '--pass_num', type=int, default=5, help='The number of passes.')
     parser.add_argument(
@@ -152,22 +151,26 @@ def run_benchmark(model, args):
         pass
 
     ns = Namespace()
-    ns.start = time.clock()
+    ns.batch_start = time.clock()
+    ns.pass_start = time.clock()
 
     def event_handler(event):
         if isinstance(event, paddle.event.EndIteration):
-            #if event.batch_id % 100 == 0:
-            end = time.clock()
-            print("pass=%d, batch=%d, loss=%f, error=%f, elapse=%f" %
-                  (event.pass_id, event.batch_id, event.cost,
-                   event.metrics.values()[0], (end - ns.start) / 1000))
-            ns.start = time.clock()
+            if event.batch_id % 100 == 0:
+                end = time.clock()
+                print("pass=%d, batch=%d, loss=%f, error=%f, elapse=%f" % (
+                    event.pass_id, event.batch_id, event.cost,
+                    event.metrics.values()[0], (end - ns.batch_start) / 1000))
+                ns.batch_start = time.clock()
 
         if isinstance(event, paddle.event.EndPass):
+            end = time.clock()
             result = trainer.test(reader=paddle.batch(
                 paddle.dataset.mnist.test(), batch_size=args.batch_size))
-            print("Test with Pass %d, Cost %f, %s\n" %
-                  (event.pass_id, result.cost, result.metrics))
+            print("pass=%d, loss=%f, error=%f, elapse=%f" %
+                  (event.pass_id,result.cost,
+                   result.metrics.values()[0], (end - ns.pass_start) / 1000))
+            ns.pass_start = time.clock()
 
     trainer.train(
         reader=paddle.batch(

@@ -21,7 +21,7 @@ def parse_args():
     parser.add_argument(
         '--batch_size', type=int, default=128, help='The minibatch size.')
     parser.add_argument(
-        '--iterations', type=int, default=35, help='The number of minibatches.')
+        '--iterations', type=int, default=200, help='The number of minibatches.')
     parser.add_argument(
         '--pass_num', type=int, default=5, help='The number of passes.')
     parser.add_argument(
@@ -83,7 +83,7 @@ def cnn_model(data):
     return predict
 
 
-def eval_test():
+def eval_test(exe,accuracy,avg_cost):
     test_reader = paddle.batch(
         paddle.dataset.mnist.test(), batch_size=args.batch_size)
     accuracy.reset(exe)
@@ -130,26 +130,29 @@ def run_benchmark(model, args):
     for pass_id in range(args.pass_num):
         accuracy.reset(exe)
         pass_start = time.clock()
+        batch_start = time.clock()
         for batch_id, data in enumerate(train_reader()):
             img_data = np.array(
                 map(lambda x: x[0].reshape([1, 28, 28]), data)).astype(DTYPE)
             y_data = np.array(map(lambda x: x[1], data)).astype("int64")
             y_data = y_data.reshape([len(y_data), 1])
 
-            start = time.clock()
             outs = exe.run(fluid.default_main_program(),
                            feed={"pixel": img_data,
                                  "label": y_data},
                            fetch_list=[avg_cost] + accuracy.metrics)
-            end = time.clock()
-            loss = np.array(outs[0])
-            acc = np.array(outs[1])
-            print("pass=%d, batch=%d, loss=%f, error=%f, elapse=%f" %
-                  (pass_id, batch_id, loss, 1 - acc, (end - start) / 1000))
+            if batch_id % 100 == 0:
+                batch_end = time.clock()
+                loss = np.array(outs[0])
+                acc = np.array(outs[1])
+                print("pass=%d, batch=%d, loss=%f, error=%f, elapse=%f" %
+                      (pass_id, batch_id, loss, 1 - acc,
+                       (batch_end - batch_start) / 1000))
+                batch_start = time.clock()
 
-        pass_acc = accuracy.eval(exe)
         pass_end = time.clock()
-        test_avg_acc = eval_test()
+        test_avg_acc = eval_test(exe, accuracy,avg_cost)
+        pass_acc = accuracy.eval(exe)
         print("pass=%d, training_avg_acc=%f, test_avg_acc=%f, elapse=%f" %
               (pass_id, pass_acc, test_avg_acc, (pass_end - pass_start) / 1000))
 

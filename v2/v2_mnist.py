@@ -68,7 +68,7 @@ def paddle_random_normal(shape, loc=.0, scale=1., seed=1, dtype="float32"):
 def v2_fluid_init_parameters(parameters,
                              f,
                              exclude_params=[],
-                             scale=1.,
+                             param_scale=1.,
                              seed=1,
                              dtype="float32"):
     tar_param = parameters.from_tar(f)
@@ -78,40 +78,40 @@ def v2_fluid_init_parameters(parameters,
             para = np.zeros(shape)
             if 'bias' not in pname:
                 para = paddle_random_normal(
-                    shape, scale=scale, seed=seed, dtype=dtype)
+                    shape, scale=param_scale[tar_param.get(pname).size], seed=seed, dtype=dtype)
             parameters.set(pname, para)
 
 
 def cnn_model(data):
-    conv_pool_1 = fluid.nets.simple_img_conv_pool(
+    # first conv layer
+    param_scale = {}
+    conv_pool_1 = paddle.networks.simple_img_conv_pool(
         input=data,
         filter_size=5,
         num_filters=20,
+        num_channel=1,
         pool_size=2,
         pool_stride=2,
-        act="relu")
-    conv_pool_2 = fluid.nets.simple_img_conv_pool(
+        act=paddle.activation.Relu())
+    param_scale[5*5*20] = (2.0 / (5**2 * 20))**0.5
+    # second conv layer
+    conv_pool_2 = paddle.networks.simple_img_conv_pool(
         input=conv_pool_1,
         filter_size=5,
         num_filters=50,
+        num_channel=20,
         pool_size=2,
         pool_stride=2,
-        act="relu")
+        act=paddle.activation.Relu())
+    param_scale[5*5*50*20] = (2.0 / (5**2 * 50 * 20))**0.5
+    # fully-connected layer
+    predict = paddle.layer.fc(input=conv_pool_2,
+                              size=10,
+                              act=paddle.activation.Softmax())
+    param_scale[800*10] = (2.0 / (800**2 * 10))**0.5
+    return predict, param_scale
 
-    # TODO(dzhwinter) : refine the initializer and random seed settting
-    SIZE = 10
-    input_shape = conv_pool_2.shape
-    param_shape = [reduce(lambda a, b: a * b, input_shape[1:], 1)] + [SIZE]
-    scale = (2.0 / (param_shape[0]**2 * SIZE))**0.5
 
-    predict = fluid.layers.fc(
-        input=conv_pool_2,
-        size=SIZE,
-        act="softmax",
-        param_attr=fluid.param_attr.ParamAttr(
-            initializer=fluid.initializer.NormalInitializer(
-                loc=0.0, scale=scale, seed=SEED)))
-    return predict
 
 def run_benchmark(model, args):
     if args.use_cprof:
@@ -125,7 +125,7 @@ def run_benchmark(model, args):
         name='pixel', type=paddle.data_type.dense_vector(784))
     label = paddle.layer.data(
         name='label', type=paddle.data_type.integer_value(10))
-    predict = model(images)
+    predict, param_scale = model(images)
 
     cost = paddle.layer.classification_cost(input=predict, label=label)
     parameters = paddle.parameters.create(cost)
@@ -142,7 +142,7 @@ def run_benchmark(model, args):
 
     # init v2 parameter with fluid init
     with open('./v2/params_pass_0.tar', 'r') as f:
-        v2_fluid_init_parameters(parameters, f, seed=SEED, dtype=DTYPE)
+        v2_fluid_init_parameters(parameters, f, param_scale=param_scale, seed=SEED, dtype=DTYPE)
 
     class Namespace:
         pass

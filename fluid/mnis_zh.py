@@ -9,7 +9,6 @@ import time
 import paddle.v2 as paddle
 import paddle.v2.fluid as fluid
 import paddle.v2.fluid.profiler as profiler
-from paddle.v2.fluid.io import get_params, save_params, load_params
 
 SEED = 1
 DTYPE = "float32"
@@ -26,7 +25,7 @@ def parse_args():
     parser.add_argument(
         '--device',
         type=str,
-        default='CPU',
+        default='GPU',
         choices=['CPU', 'GPU'],
         help='The device type.')
     parser.add_argument(
@@ -49,12 +48,29 @@ def print_arguments(args):
 
 
 def cnn_model(data):
+    conv_pool_1 = fluid.nets.simple_img_conv_pool(
+        input=data,
+        filter_size=5,
+        num_filters=20,
+        pool_size=2,
+        pool_stride=2,
+        act="relu")
+    conv_pool_2 = fluid.nets.simple_img_conv_pool(
+        input=conv_pool_1,
+        filter_size=5,
+        num_filters=50,
+        pool_size=2,
+        pool_stride=2,
+        act="relu")
 
+    # TODO(dzhwinter) : refine the initializer and random seed settting
     SIZE = 10
-    scale = 1.0 #(2.0 / (param_shape[0]**2 * SIZE))**0.5
+    input_shape = conv_pool_2.shape
+    param_shape = [reduce(lambda a, b: a * b, input_shape[1:], 1)] + [SIZE]
+    scale = (2.0 / (param_shape[0]**2 * SIZE))**0.5
 
     predict = fluid.layers.fc(
-        input=data,
+        input=conv_pool_2,
         size=SIZE,
         act="softmax",
         param_attr=fluid.param_attr.ParamAttr(
@@ -93,11 +109,8 @@ def run_benchmark(model, args):
 
     cost = fluid.layers.cross_entropy(input=predict, label=label)
     avg_cost = fluid.layers.mean(x=cost)
-    avg_cost = fluid.layers.scale(x=avg_cost, scale=128.0)
-    #opt = fluid.optimizer.AdamOptimizer(beta1=0.9, beta2=0.999)
-    #opt = fluid.optimizer.SGD(learning_rate=0.01)
-    opt = fluid.optimizer.Momentum(learning_rate=0.01,momentum=0.9)
-
+    opt = fluid.optimizer.AdamOptimizer(
+        learning_rate=0.001, beta1=0.9, beta2=0.999)
     opt.minimize(avg_cost)
 
     accuracy = fluid.evaluator.Accuracy(input=predict, label=label)
@@ -105,12 +118,11 @@ def run_benchmark(model, args):
     train_reader = paddle.batch(
         paddle.dataset.mnist.train(), batch_size=args.batch_size)
 
-    place = fluid.CPUPlace() if args.device == 'CPU' else fluid.GPUPlace(0)
+    place = fluid.CPUPlace()
     exe = fluid.Executor(place)
 
     exe.run(fluid.default_startup_program())
-    #save_params(exe, "./fluid_para")
-    load_params(exe,"./fluid_para")
+
     for pass_id in range(args.pass_num):
         accuracy.reset(exe)
         pass_start = time.clock()
@@ -119,15 +131,14 @@ def run_benchmark(model, args):
                 map(lambda x: x[0].reshape([1, 28, 28]), data)).astype(DTYPE)
             y_data = np.array(map(lambda x: x[1], data)).astype("int64")
             y_data = y_data.reshape([len(y_data), 1])
-            param = get_params(exe)
+
             start = time.clock()
             outs = exe.run(fluid.default_main_program(),
                            feed={"pixel": img_data,
                                  "label": y_data},
                            fetch_list=[avg_cost] + accuracy.metrics)
             end = time.clock()
-        
-            loss = np.array(outs[0])/128
+            loss = np.array(outs[0])
             acc = np.array(outs[1])
             print("pass=%d, batch=%d, loss=%f, error=%f, elapse=%f" %
                   (pass_id, batch_id, loss, 1 - acc, (end - start) / 1000))

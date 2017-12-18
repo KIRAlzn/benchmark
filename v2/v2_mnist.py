@@ -83,30 +83,35 @@ def v2_fluid_init_parameters(parameters,
 
 
 def cnn_model(data):
-    # first conv layer
-    conv_pool_1 = paddle.networks.simple_img_conv_pool(
+    conv_pool_1 = fluid.nets.simple_img_conv_pool(
         input=data,
         filter_size=5,
         num_filters=20,
-        num_channel=1,
         pool_size=2,
         pool_stride=2,
-        act=paddle.activation.Relu())
-    # second conv layer
-    conv_pool_2 = paddle.networks.simple_img_conv_pool(
+        act="relu")
+    conv_pool_2 = fluid.nets.simple_img_conv_pool(
         input=conv_pool_1,
         filter_size=5,
         num_filters=50,
-        num_channel=20,
         pool_size=2,
         pool_stride=2,
-        act=paddle.activation.Relu())
-    # fully-connected layer
-    predict = paddle.layer.fc(input=conv_pool_2,
-                              size=10,
-                              act=paddle.activation.Softmax())
-    return predict
+        act="relu")
 
+    # TODO(dzhwinter) : refine the initializer and random seed settting
+    SIZE = 10
+    input_shape = conv_pool_2.shape
+    param_shape = [reduce(lambda a, b: a * b, input_shape[1:], 1)] + [SIZE]
+    scale = (2.0 / (param_shape[0]**2 * SIZE))**0.5
+
+    predict = fluid.layers.fc(
+        input=conv_pool_2,
+        size=SIZE,
+        act="softmax",
+        param_attr=fluid.param_attr.ParamAttr(
+            initializer=fluid.initializer.NormalInitializer(
+                loc=0.0, scale=scale, seed=SEED)))
+    return predict
 
 def run_benchmark(model, args):
     if args.use_cprof:
@@ -136,7 +141,7 @@ def run_benchmark(model, args):
                                  update_equation=optimizer)
 
     # init v2 parameter with fluid init
-    with open('params_pass_0.tar', 'r') as f:
+    with open('./v2/params_pass_0.tar', 'r') as f:
         v2_fluid_init_parameters(parameters, f, seed=SEED, dtype=DTYPE)
 
     class Namespace:

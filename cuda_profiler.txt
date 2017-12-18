@@ -1,0 +1,7 @@
+NV_Warning: Concurrent kernel trace not supported for this device 
+# CUDA_PROFILE_LOG_VERSION 2.0
+# CUDA_DEVICE 0 TITAN X (Pascal)
+# CUDA_CONTEXT 1
+# CUDA_PROFILE_CSV 1
+# TIMESTAMPFACTOR 14fdba787ad52b3e
+gpustarttimestamp,gpuendtimestamp,method,gputime,cputime,gridsizeX,gridsizeY,gridsizeZ,threadblocksizeX,threadblocksizeY,threadblocksizeZ,occupancy,streamid

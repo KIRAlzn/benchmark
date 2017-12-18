@@ -53,14 +53,37 @@ def cnn_model(data):
     SIZE = 10
     scale = 1.0 #(2.0 / (param_shape[0]**2 * SIZE))**0.5
 
-    predict = fluid.layers.fc(
+    conv_pool_1 = fluid.nets.simple_img_conv_pool(
         input=data,
+        filter_size=5,
+        num_filters=20,
+        pool_size=2,
+        pool_stride=2,
+        act="relu")
+    conv_pool_2 = fluid.nets.simple_img_conv_pool(
+        input=conv_pool_1,
+        filter_size=5,
+        num_filters=50,
+        pool_size=2,
+        pool_stride=2,
+        act="relu")
+
+
+    # TODO(dzhwinter) : refine the initializer and random seed settting
+    SIZE = 10
+    input_shape = conv_pool_2.shape
+    param_shape = [reduce(lambda a, b: a * b, input_shape[1:], 1)] + [SIZE]
+    scale = 1.0 #(2.0 / (param_shape[0]**2 * SIZE))**0.5
+
+    predict = fluid.layers.fc(
+        input=conv_pool_2,
         size=SIZE,
         act="softmax",
         param_attr=fluid.param_attr.ParamAttr(
             initializer=fluid.initializer.NormalInitializer(
                 loc=0.0, scale=scale, seed=SEED)))
     return predict
+
 
 
 def eval_test():
@@ -93,10 +116,9 @@ def run_benchmark(model, args):
 
     cost = fluid.layers.cross_entropy(input=predict, label=label)
     avg_cost = fluid.layers.mean(x=cost)
-    avg_cost = fluid.layers.scale(x=avg_cost, scale=128.0)
-    #opt = fluid.optimizer.AdamOptimizer(beta1=0.9, beta2=0.999)
-    #opt = fluid.optimizer.SGD(learning_rate=0.01)
-    opt = fluid.optimizer.Momentum(learning_rate=0.01,momentum=0.9)
+    #opt = fluid.optimizer.AdamOptimizer(learning_rate=0.001, beta1=0.9, beta2=0.999)
+    opt = fluid.optimizer.SGD(learning_rate=0.0)
+    #opt = fluid.optimizer.Momentum(learning_rate=0.01,momentum=0.9)
 
     opt.minimize(avg_cost)
 
@@ -110,7 +132,7 @@ def run_benchmark(model, args):
 
     exe.run(fluid.default_startup_program())
     #save_params(exe, "./fluid_para")
-    load_params(exe,"./fluid_para")
+    #load_params(exe,"./fluid_para")
     for pass_id in range(args.pass_num):
         accuracy.reset(exe)
         pass_start = time.clock()
@@ -127,7 +149,7 @@ def run_benchmark(model, args):
                            fetch_list=[avg_cost] + accuracy.metrics)
             end = time.clock()
         
-            loss = np.array(outs[0])/128
+            loss = np.array(outs[0])
             acc = np.array(outs[1])
             print("pass=%d, batch=%d, loss=%f, error=%f, elapse=%f" %
                   (pass_id, batch_id, loss, 1 - acc, (end - start) / 1000))

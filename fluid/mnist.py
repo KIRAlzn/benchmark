@@ -118,8 +118,9 @@ def run_benchmark(model, args):
 
     cost = fluid.layers.cross_entropy(input=predict, label=label)
     avg_cost = fluid.layers.mean(x=cost)
+    avg_cost = fluid.layers.scale(x=avg_cost, scale=128.0)
     #opt = fluid.optimizer.AdamOptimizer(beta1=0.9, beta2=0.999)
-    opt = fluid.optimizer.SGD(learning_rate=0.0)
+    opt = fluid.optimizer.SGD(learning_rate=0.01)
  
     opt.minimize(avg_cost)
 
@@ -149,7 +150,7 @@ def run_benchmark(model, args):
                            fetch_list=[avg_cost] + accuracy.metrics)
             end = time.clock()
         
-            loss = np.array(outs[0])
+            loss = np.array(outs[0])/128
             acc = np.array(outs[1])
             print("pass=%d, batch=%d, loss=%f, error=%f, elapse=%f" %
                   (pass_id, batch_id, loss, 1 - acc, (end - start) / 1000))

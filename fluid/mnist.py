@@ -55,14 +55,21 @@ def cnn_model(data):
         num_filters=20,
         pool_size=2,
         pool_stride=2,
-        act="relu")       
+        act="relu",
+        param_attr=fluid.param_attr.ParamAttr(
+            initializer=fluid.initializer.NormalInitializer(
+                loc=0.0, scale=1.0, seed=SEED)))
+      
     conv_pool_2 = fluid.nets.simple_img_conv_pool(
         input=conv_pool_1,
         filter_size=5,
         num_filters=50,
         pool_size=2,
         pool_stride=2,
-        act="relu")
+        act="relu",
+        param_attr=fluid.param_attr.ParamAttr(
+            initializer=fluid.initializer.NormalInitializer(
+                loc=0.0, scale=1.0, seed=SEED)))
 
 
     # TODO(dzhwinter) : refine the initializer and random seed settting

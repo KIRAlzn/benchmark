@@ -140,7 +140,7 @@ def run_benchmark(model, args):
             outs = exe.run(fluid.default_main_program(),
                            feed={"pixel": img_data,
                                  "label": y_data},
-                           fetch_list=[avg_cost] + accuracy.metrics)
+                           fetch_list=[avg_cost] + accuracy.metrics if batch_id % 100 == 0 else [])
             if batch_id % 100 == 0:
                 batch_end = time.clock()
                 loss = np.array(outs[0])

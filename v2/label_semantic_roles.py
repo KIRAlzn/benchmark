@@ -99,17 +99,17 @@ def v2_fluid_init_parameters(parameters,
                     dtype=dtype)
             parameters.set(pname, para)
 
+def d_type(size):
+    return paddle.data_type.integer_value_sequence(size)
+
+def load_parameter(file_name, h, w):
+    with open(file_name, 'rb') as f:
+        f.read(16)  # skip header.
+        return np.fromfile(f, dtype=np.float32).reshape(h, w)
 
 def db_lstm():
+
     #8 features
-    def d_type(size):
-        return paddle.data_type.integer_value_sequence(size)
-
-    def load_parameter(file_name, h, w):
-        with open(file_name, 'rb') as f:
-            f.read(16)  # skip header.
-            return np.fromfile(f, dtype=np.float32).reshape(h, w)
-
     word = paddle.layer.data(name='word_data', type=d_type(word_dict_len))
     predicate = paddle.layer.data(name='verb_data', type=d_type(pred_len))
 
@@ -204,7 +204,6 @@ def run_benchmark(args):
     start_time = time.time()
 
     paddle.init(use_gpu=(args.device == "GPU"), trainer_count=1)
-
     # define network topology
     feature_out = db_lstm()
     target = paddle.layer.data(name='target', type=d_type(label_dict_len))
@@ -280,17 +279,17 @@ def run_benchmark(args):
                 end = time.clock()
                 metrics = [sub.split(".")[1] for sub in event.metrics.keys()]
                 metrics_val = event.metrics.values()
-                print "Pass %d, Batch %d, Cost %f, %s, %s, %s" % (
+                print("Pass %d, Batch %d, Cost %f, %s, %s, %s" % (
                     event.pass_id, event.batch_id, event.cost,
                     metrics[0] + ":" + str(metrics_val[0]),
                     metrics[1] + ":" + str(metrics_val[1]),
-                    metrics[2] + ":" + str(metrics_val[2]))
+                    metrics[2] + ":" + str(metrics_val[2])))
                 ns.batch_start = time.clock()
 
         if isinstance(event, paddle.event.EndPass):
             end = time.clock()
             result = trainer.test(reader=test_reader, feeding=feeding)
-            print "\nTest with Pass %d, %s" % (event.pass_id, result.metrics)
+            print("test with Pass %d, %s" % (event.pass_id, result.metrics))
             ns.pass_start = time.clock()
 
     trainer.train(

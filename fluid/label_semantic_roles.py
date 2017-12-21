@@ -220,6 +220,7 @@ def run_benchmark(args):
     embedding_param.set(
         load_parameter(conll05.get_embedding(), word_dict_len, word_dim), place)
 
+    time_consume = []
     for pass_id in xrange(args.pass_num):
         chunk_evaluator.reset(exe)
         pass_start = time.clock()
@@ -235,13 +236,16 @@ def run_benchmark(args):
                 batch_end = time.clock()
                 pass_precision, pass_recall, pass_f1_score = chunk_evaluator.eval(
                     exe)
-                print(
-                    "pass_id:%d, batch_id:%d, avg_cost:%.5f  precision:%.5f recal:%.5f  f1_score:%.5f, elapse:%f"
-                    % (pass_id, batch_id, outs[0][0], outs[1][0], outs[2][0],
+                print("pass_id:%d, batch_id:%d, avg_cost:%.5f  precision:%.5f "
+                      "recal:%.5f  f1_score:%.5f, elapse:%f" %
+                      (pass_id, batch_id, outs[0][0], outs[1][0], outs[2][0],
                        outs[3][0], (batch_end - batch_start) / 1000))
+                time_consume += [(batch_end - batch_start) / 1000]
                 batch_start = time.clock()
         pass_end = time.clock()
         print("pass=%d, elapse=%f" % (pass_id, (pass_end - pass_start) / 1000))
+    print("time consume:")
+    print time_consume
 
 
 if __name__ == '__main__':

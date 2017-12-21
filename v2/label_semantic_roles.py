@@ -292,9 +292,13 @@ def run_benchmark(args):
         if isinstance(event, paddle.event.EndPass):
             pass_end = time.clock()
             result = trainer.test(reader=test_reader, feeding=feeding)
-            print("test with Pass %d, %s,elapse: %f" %
-                  (event.pass_id, result.metrics,
-                   (pass_end - ns.pass_start) / 1000))
+            metrics = [sub.split(".")[1] for sub in result.metrics.keys()]
+            metrics_val = result.metrics.values()
+            print("Pass %d, Cost %f, %s:%.5f, %s:%.5f, %s:%.5f, elapse: %f" %
+                  (event.pass_id, event.batch_id, event.cost, metrics[0],
+                   metrics_val[0], metrics[1], metrics_val[1], metrics[2],
+                   metrics_val[2], (pass_end - ns.pass_start) / 1000))
+
             ns.pass_start = time.clock()
 
     trainer.train(

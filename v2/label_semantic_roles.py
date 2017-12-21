@@ -1,12 +1,16 @@
-import math, os
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 import numpy as np
+import math, os
+import argparse
+import time
+
 import paddle.v2 as paddle
 import paddle.v2.dataset.conll05 as conll05
 import paddle.v2.evaluator as evaluator
-#import paddle.v2.chunk_evaluator  as chunk_evaluator
-from paddle.trainer_config_helpers  import *
-
-with_gpu = os.getenv('WITH_GPU', '0') != '0'
+from paddle.trainer_config_helpers import *
 
 word_dict, verb_dict, label_dict = conll05.get_dict()
 word_dict_len = len(word_dict)
@@ -21,23 +25,91 @@ depth = 8
 default_std = 1 / math.sqrt(hidden_dim) / 3.0
 mix_hidden_lr = 1e-3
 
-IS_SPARSE = True
-PASS_NUM = 10
-BATCH_SIZE = 20
+
+def parse_args():
+    parser = argparse.ArgumentParser("mnist model benchmark.")
+    parser.add_argument(
+        '--batch_size', type=int, default=20, help='The minibatch size.')
+    parser.add_argument(
+        '--iterations',
+        type=int,
+        default=200,
+        help='The number of minibatches.')
+    parser.add_argument(
+        '--pass_num', type=int, default=10, help='The number of passes.')
+    parser.add_argument(
+        '--device',
+        type=str,
+        default='CPU',
+        choices=['CPU', 'GPU'],
+        help='The device type.')
+    parser.add_argument(
+        '--infer_only', action='store_true', help='If set, run forward only.')
+    parser.add_argument(
+        '--use_cprof', action='store_true', help='If set, use cProfile.')
+    parser.add_argument(
+        '--use_nvprof',
+        action='store_true',
+        help='If set, use nvprof for CUDA.')
+    args = parser.parse_args()
+    return args
 
 
-def d_type(size):
-    return paddle.data_type.integer_value_sequence(size)
+def print_arguments(args):
+    vars(args)['use_nvprof'] = (vars(args)['use_nvprof'] and
+                                vars(args)['device'] == 'GPU')
+    print('-----------  Configuration Arguments -----------')
+    for arg, value in sorted(vars(args).iteritems()):
+        print('%s: %s' % (arg, value))
+    print('------------------------------------------------')
 
 
-def load_parameter(file_name, h, w):
-    with open(file_name, 'rb') as f:
-        f.read(16)  # skip header.
-        return np.fromfile(f, dtype=np.float32).reshape(h, w)
+def paddle_random_normal(shape, loc=.0, scale=1., seed=1, dtype="float32"):
+    program = fluid.framework.Program()
+    block = program.global_block()
+    w = block.create_var(
+        dtype=dtype,
+        shape=shape,
+        lod_level=0,
+        name="param",
+        initializer=fluid.initializer.NormalInitializer(
+            loc=.0, scale=scale, seed=seed))
+    place = fluid.CPUPlace()
+    exe = fluid.Executor(place)
+    out = exe.run(program, fetch_list=[w])
+    return np.array(out[0])
+
+
+def v2_fluid_init_parameters(parameters,
+                             f,
+                             exclude_params=[],
+                             param_scale=1.,
+                             seed=1,
+                             dtype="float32"):
+    tar_param = parameters.from_tar(f)
+    for pname in tar_param.names():
+        if pname in parameters.names() and pname not in exclude_params:
+            shape = tar_param.get(pname).shape
+            para = np.zeros(shape)
+            if 'bias' not in pname:
+                para = paddle_random_normal(
+                    shape,
+                    scale=param_scale[tar_param.get(pname).size],
+                    seed=seed,
+                    dtype=dtype)
+            parameters.set(pname, para)
 
 
 def db_lstm():
     #8 features
+    def d_type(size):
+        return paddle.data_type.integer_value_sequence(size)
+
+    def load_parameter(file_name, h, w):
+        with open(file_name, 'rb') as f:
+            f.read(16)  # skip header.
+            return np.fromfile(f, dtype=np.float32).reshape(h, w)
+
     word = paddle.layer.data(name='word_data', type=d_type(word_dict_len))
     predicate = paddle.layer.data(name='verb_data', type=d_type(pred_len))
 
@@ -122,12 +194,16 @@ def db_lstm():
             paddle.layer.full_matrix_projection(
                 input=input_tmp[1], param_attr=lstm_para_attr)
         ], )
-
     return feature_out
 
 
-def main():
-    paddle.init(use_gpu=with_gpu, trainer_count=1)
+def run_benchmark(args):
+    if args.use_cprof:
+        pr = cProfile.Profile()
+        pr.enable()
+    start_time = time.time()
+
+    paddle.init(use_gpu=(args.device == "GPU"), trainer_count=1)
 
     # define network topology
     feature_out = db_lstm()
@@ -151,7 +227,7 @@ def main():
         label=target,
         chunk_scheme="IOB",
         num_chunk_types=int(math.ceil((label_dict_len - 1) / 2.0)))
- 
+
     # create parameters
     parameters = paddle.parameters.create(crf_cost)
     parameters.set('emb', load_parameter(conll05.get_embedding(), 44068, 32))
@@ -171,11 +247,9 @@ def main():
                                  extra_layers=crf_dec)
 
     train_reader = paddle.batch(
-        paddle.dataset.conll05.test(), batch_size=BATCH_SIZE)
-
+        paddle.dataset.conll05.test(), batch_size=args.batch_size)
     test_reader = paddle.batch(
-        paddle.dataset.conll05.test(), batch_size=BATCH_SIZE)
-
+        paddle.dataset.conll05.test(), batch_size=args.batch_size)
     feeding = {
         'word_data': 0,
         'ctx_n2_data': 1,
@@ -188,29 +262,49 @@ def main():
         'target': 8
     }
 
+    class Namespace:
+        pass
+
+    ns = Namespace()
+    ns.batch_start = time.clock()
+    ns.pass_start = time.clock()
+
     def event_handler(event):
         if isinstance(event, paddle.event.EndIteration):
             if event.batch_id % 1 == 0:
-            # save parameters
-                with open('params_pass_%d.tar' % event.pass_id, 'w') as f:
-                    trainer.save_parameter_to_tar(f)
-                exit(1)
+                # save parameters
+                # with open('params_pass_%d.tar' % event.pass_id, 'w') as f:
+                #     trainer.save_parameter_to_tar(f)
+                # exit(1)
+
+                end = time.clock()
                 metrics = [sub.split(".")[1] for sub in event.metrics.keys()]
                 metrics_val = event.metrics.values()
                 print "Pass %d, Batch %d, Cost %f, %s, %s, %s" % (
-                    event.pass_id, event.batch_id, event.cost, 
-                    metrics[0] + ":" + str(metrics_val[0]), 
-                    metrics[1] + ":" + str(metrics_val[1]), 
+                    event.pass_id, event.batch_id, event.cost,
+                    metrics[0] + ":" + str(metrics_val[0]),
+                    metrics[1] + ":" + str(metrics_val[1]),
                     metrics[2] + ":" + str(metrics_val[2]))
+                ns.batch_start = time.clock()
+
         if isinstance(event, paddle.event.EndPass):
+            end = time.clock()
             result = trainer.test(reader=test_reader, feeding=feeding)
             print "\nTest with Pass %d, %s" % (event.pass_id, result.metrics)
+            ns.pass_start = time.clock()
 
     trainer.train(
         reader=train_reader,
         event_handler=event_handler,
-        num_passes=1,
+        num_passes=args.pass_num,
         feeding=feeding)
 
+
 if __name__ == '__main__':
-    main()
+    args = parse_args()
+    print_arguments(args)
+    if args.use_nvprof and args.device == 'GPU':
+        with profiler.cuda_profiler("cuda_profiler.txt", 'csv') as nvprof:
+            run_benchmark(args)
+    else:
+        run_benchmark(args)

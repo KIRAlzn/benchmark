@@ -5,6 +5,9 @@ import paddle.v2 as paddle
 import paddle.v2.dataset.conll05 as conll05
 import paddle.v2.fluid as fluid
 
+# random seed must set before configuring the network.
+fluid.default_startup_program().random_seed = SEED
+
 word_dict, verb_dict, label_dict = conll05.get_dict()
 word_dict_len = len(word_dict)
 label_dict_len = len(label_dict)
@@ -184,15 +187,15 @@ def main():
                 exe)
 
             if batch_id % 1 == 0:
-                print("avg_cost:%.5f  precision:%.5f  recal:%.5f  f1_score:%.5f  pass_precision:%.5f  pass_recal:%.5f pass_f1_score:%.5f" % (cost[0],
-                       precision[0], recall[0], f1_score[0], 
-                       pass_precision[0], pass_recall[0],pass_f1_score[0]))
+                print(
+                    "avg_cost:%.5f  precision:%.5f  recal:%.5f  f1_score:%.5f  pass_precision:%.5f  pass_recal:%.5f pass_f1_score:%.5f"
+                    % (cost[0], precision[0], recall[0], f1_score[0],
+                       pass_precision[0], pass_recall[0], pass_f1_score[0]))
                 #print("avg_cost:" + str(cost[0]) + " precision:" + str(
                 #    precision[0]) + " recall:" + str(recall[0]) + " f1_score:" + str(
                 #        f1_score[0]) + " pass_precision:" + str( 
                 #            pass_precision[0]) + " pass_recall:" + str(pass_recall[0])
                 #      + " pass_f1_score:" + str(pass_f1_score[0]))
-
 
             batch_id = batch_id + 1
 

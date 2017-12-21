@@ -5,7 +5,7 @@ import paddle.v2 as paddle
 import paddle.v2.dataset.conll05 as conll05
 import paddle.v2.fluid as fluid
 
-SEED = 1
+SEED = 4
 DTYPE = "float32"
 # random seed must set before configuring the network.
 fluid.default_startup_program().random_seed = SEED
@@ -177,7 +177,7 @@ def main():
     embedding_param.set(
         load_parameter(conll05.get_embedding(), word_dict_len, word_dim), place)
 
-    batch_id = 0
+    batch_id = -1
     for pass_id in xrange(PASS_NUM):
         chunk_evaluator.reset(exe)
         for data in train_data():
@@ -187,20 +187,9 @@ def main():
                 fetch_list=[avg_cost] + chunk_evaluator.metrics)
             pass_precision, pass_recall, pass_f1_score = chunk_evaluator.eval(
                 exe)
-
-            if batch_id % 1 == 0:
-                print(
-                    "avg_cost:%.5f  precision:%.5f  recal:%.5f  f1_score:%.5f  pass_precision:%.5f  pass_recal:%.5f pass_f1_score:%.5f"
-                    % (cost[0], precision[0], recall[0], f1_score[0],
-                       pass_precision[0], pass_recall[0], pass_f1_score[0]))
-                #print("avg_cost:" + str(cost[0]) + " precision:" + str(
-                #    precision[0]) + " recall:" + str(recall[0]) + " f1_score:" + str(
-                #        f1_score[0]) + " pass_precision:" + str( 
-                #            pass_precision[0]) + " pass_recall:" + str(pass_recall[0])
-                #      + " pass_f1_score:" + str(pass_f1_score[0]))
-
-            batch_id = batch_id + 1
-
+            batch_id += 1
+            if batch_id % 1 == 0 :
+                print("pass_id:%d, batch_id:%d, avg_cost:%.5f  precision:%.5f  recal:%.5f  f1_score:%.5f" % (pass_id, batch_id, cost[0], precision[0], recall[0], f1_score[0]))
 
 if __name__ == '__main__':
     main()

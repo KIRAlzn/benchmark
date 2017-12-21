@@ -5,6 +5,8 @@ import paddle.v2 as paddle
 import paddle.v2.dataset.conll05 as conll05
 import paddle.v2.fluid as fluid
 
+SEED = 1
+DTYPE = "float32"
 # random seed must set before configuring the network.
 fluid.default_startup_program().random_seed = SEED
 

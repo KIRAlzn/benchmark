@@ -33,7 +33,7 @@ def parse_args():
         '--use_cprof', action='store_true', help='If set, use cProfile.')
     parser.add_argument(
         '--use_nvprof',
-        action='store_false',
+        action='store_true',
         help='If set, use nvprof for CUDA.')
     args = parser.parse_args()
     return args
@@ -120,7 +120,7 @@ def run_benchmark(model, args):
         pr.enable()
     start_time = time.time()
 
-    paddle.init(use_gpu=False, trainer_count=1)
+    paddle.init(use_gpu=(args.device=="GPU"), trainer_count=1)
     # define network topology
     images = paddle.layer.data(
         name='pixel', type=paddle.data_type.dense_vector(784))

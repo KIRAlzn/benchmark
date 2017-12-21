@@ -1,4 +1,6 @@
-
 *.txt
 *.swp
 *.out
+*.out
+*prof*
+

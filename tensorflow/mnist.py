@@ -120,6 +120,10 @@ def eval_test():
                        labels: labels_data})
     return g_acc[1]
 
+data = next(train_reader())
+images_data = np.array(
+    map(lambda x: np.transpose(x[0].reshape([1, 28, 28]), axes=[1,2,0]), data)).astype("float32")
+labels_data = np.array(map(lambda x: x[1], data)).astype("int64")
 
 config = tf.ConfigProto(
     intra_op_parallelism_threads=1, inter_op_parallelism_threads=1)
@@ -131,10 +135,7 @@ with tf.Session(config=config) as sess:
     for pass_id in range(PASS_NUM):
         pass_start = time.clock()
         start = time.clock()
-        for batch_id, data in enumerate(train_reader()):
-            images_data = np.array(
-                map(lambda x: np.transpose(x[0].reshape([1, 28, 28]), axes=[1,2,0]), data)).astype("float32")
-            labels_data = np.array(map(lambda x: x[1], data)).astype("int64")
+        for batch_id in range(468) :
 
             _, loss, acc, g_acc = sess.run(
                 [train_op, avg_cost, accuracy, g_accuracy],

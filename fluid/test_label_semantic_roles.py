@@ -4,7 +4,9 @@ import numpy as np
 import paddle.v2 as paddle
 import paddle.v2.dataset.conll05 as conll05
 import paddle.v2.fluid as fluid
+import time
 
+STEP = 10
 SEED = 4
 DTYPE = "float32"
 # random seed must set before configuring the network.
@@ -176,20 +178,27 @@ def main():
     embedding_param = fluid.g_scope.find_var(embedding_name).get_tensor()
     embedding_param.set(
         load_parameter(conll05.get_embedding(), word_dict_len, word_dim), place)
-
+    
     batch_id = -1
     for pass_id in xrange(PASS_NUM):
         chunk_evaluator.reset(exe)
+        pass_start = time.time()
+        batch_start = time.clock()
         for data in train_data():
-            cost, precision, recall, f1_score = exe.run(
+            batch_id += 1
+            outs = exe.run(
                 fluid.default_main_program(),
                 feed=feeder.feed(data),
-                fetch_list=[avg_cost] + chunk_evaluator.metrics)
-            pass_precision, pass_recall, pass_f1_score = chunk_evaluator.eval(
-                exe)
-            batch_id += 1
-            if batch_id % 1 == 0 :
-                print("pass_id:%d, batch_id:%d, avg_cost:%.5f  precision:%.5f  recal:%.5f  f1_score:%.5f" % (pass_id, batch_id, cost[0], precision[0], recall[0], f1_score[0]))
+                fetch_list=[avg_cost] + chunk_evaluator.metrics if batch_id % STEP == 0 else [])
+            if batch_id % STEP == 0:
+                batch_end = time.clock()
+                pass_precision, pass_recall, pass_f1_score = chunk_evaluator.eval(exe)
+                print("pass_id:%d, batch_id:%d, avg_cost:%.5f  precision:%.5f  recal:%.5f  f1_score:%.5f, elapse:%f" %
+                     (pass_id, batch_id, outs[0][0], outs[1][0], 
+                      outs[2][0], outs[3][0], (batch_end - batch_start) / 1000))
+                batch_start = time.clock()
+        pass_end = time.clock()
+        print("pass=%d, elapse=%f" % (pass_id, (pass_end - pass_start) / 1000))
 
 if __name__ == '__main__':
     main()

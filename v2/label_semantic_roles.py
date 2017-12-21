@@ -191,6 +191,10 @@ def main():
     def event_handler(event):
         if isinstance(event, paddle.event.EndIteration):
             if event.batch_id % 1 == 0:
+            # save parameters
+                with open('params_pass_%d.tar' % event.pass_id, 'w') as f:
+                    trainer.save_parameter_to_tar(f)
+                exit(1)
                 metrics = [sub.split(".")[1] for sub in event.metrics.keys()]
                 metrics_val = event.metrics.values()
                 print "Pass %d, Batch %d, Cost %f, %s, %s, %s" % (

@@ -279,21 +279,23 @@ def run_benchmark(args):
                 # with open('params_pass_%d.tar' % event.pass_id, 'w') as f:
                 #     trainer.save_parameter_to_tar(f)
                 # exit(1)
-
-                end = time.clock()
+                batch_end = time.clock()
                 metrics = [sub.split(".")[1] for sub in event.metrics.keys()]
                 metrics_val = event.metrics.values()
-                print("Pass %d, Batch %d, Cost %f, %s, %s, %s" %
+                print("Pass %d, Batch %d, Cost %f, %s, %s, %s, elapse: %f" %
                       (event.pass_id, event.batch_id, event.cost,
                        metrics[0] + ":" + str(metrics_val[0]),
                        metrics[1] + ":" + str(metrics_val[1]),
-                       metrics[2] + ":" + str(metrics_val[2])))
+                       metrics[2] + ":" + str(metrics_val[2]),
+                       (batch_end - ns.batch_start) / 1000))
                 ns.batch_start = time.clock()
 
         if isinstance(event, paddle.event.EndPass):
-            end = time.clock()
+            pass_end = time.clock()
             result = trainer.test(reader=test_reader, feeding=feeding)
-            print("test with Pass %d, %s" % (event.pass_id, result.metrics))
+            print("test with Pass %d, %s,elapse: %f" %
+                  (event.pass_id, result.metrics,
+                   (pass_end - ns.pass_start) / 1000))
             ns.pass_start = time.clock()
 
     trainer.train(

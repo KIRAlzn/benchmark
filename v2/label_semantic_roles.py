@@ -12,6 +12,7 @@ import paddle.v2.dataset.conll05 as conll05
 import paddle.v2.evaluator as evaluator
 from paddle.trainer_config_helpers import *
 
+STEP = 10
 word_dict, verb_dict, label_dict = conll05.get_dict()
 word_dict_len = len(word_dict)
 label_dict_len = len(label_dict)
@@ -99,13 +100,16 @@ def v2_fluid_init_parameters(parameters,
                     dtype=dtype)
             parameters.set(pname, para)
 
+
 def d_type(size):
     return paddle.data_type.integer_value_sequence(size)
+
 
 def load_parameter(file_name, h, w):
     with open(file_name, 'rb') as f:
         f.read(16)  # skip header.
         return np.fromfile(f, dtype=np.float32).reshape(h, w)
+
 
 def db_lstm():
 
@@ -270,7 +274,7 @@ def run_benchmark(args):
 
     def event_handler(event):
         if isinstance(event, paddle.event.EndIteration):
-            if event.batch_id % 1 == 0:
+            if event.batch_id % STEP == 0:
                 # save parameters
                 # with open('params_pass_%d.tar' % event.pass_id, 'w') as f:
                 #     trainer.save_parameter_to_tar(f)
@@ -279,11 +283,11 @@ def run_benchmark(args):
                 end = time.clock()
                 metrics = [sub.split(".")[1] for sub in event.metrics.keys()]
                 metrics_val = event.metrics.values()
-                print("Pass %d, Batch %d, Cost %f, %s, %s, %s" % (
-                    event.pass_id, event.batch_id, event.cost,
-                    metrics[0] + ":" + str(metrics_val[0]),
-                    metrics[1] + ":" + str(metrics_val[1]),
-                    metrics[2] + ":" + str(metrics_val[2])))
+                print("Pass %d, Batch %d, Cost %f, %s, %s, %s" %
+                      (event.pass_id, event.batch_id, event.cost,
+                       metrics[0] + ":" + str(metrics_val[0]),
+                       metrics[1] + ":" + str(metrics_val[1]),
+                       metrics[2] + ":" + str(metrics_val[2])))
                 ns.batch_start = time.clock()
 
         if isinstance(event, paddle.event.EndPass):

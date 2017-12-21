@@ -1,10 +1,16 @@
-import math
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
 
 import numpy as np
-import paddle.v2 as paddle
-import paddle.v2.dataset.conll05 as conll05
-import paddle.v2.fluid as fluid
+import argparse
+import math
 import time
+
+import paddle.v2 as paddle
+import paddle.v2.fluid as fluid
+import paddle.v2.fluid.profiler as profiler
+import paddle.v2.dataset.conll05 as conll05
 
 STEP = 10
 SEED = 4
@@ -25,10 +31,45 @@ depth = 8
 mix_hidden_lr = 1e-3
 
 IS_SPARSE = True
-PASS_NUM = 10
-BATCH_SIZE = 20
-
 embedding_name = 'emb'
+
+
+def parse_args():
+    parser = argparse.ArgumentParser("mnist model benchmark.")
+    parser.add_argument(
+        '--batch_size', type=int, default=20, help='The minibatch size.')
+    parser.add_argument(
+        '--iterations',
+        type=int,
+        default=200,
+        help='The number of minibatches.')
+    parser.add_argument(
+        '--pass_num', type=int, default=10, help='The number of passes.')
+    parser.add_argument(
+        '--device',
+        type=str,
+        default='CPU',
+        choices=['CPU', 'GPU'],
+        help='The device type.')
+    parser.add_argument(
+        '--infer_only', action='store_true', help='If set, run forward only.')
+    parser.add_argument(
+        '--use_cprof', action='store_true', help='If set, use cProfile.')
+    parser.add_argument(
+        '--use_nvprof',
+        action='store_true',
+        help='If set, use nvprof for CUDA.')
+    args = parser.parse_args()
+    return args
+
+
+def print_arguments(args):
+    vars(args)['use_nvprof'] = (vars(args)['use_nvprof'] and
+                                vars(args)['device'] == 'GPU')
+    print('-----------  Configuration Arguments -----------')
+    for arg, value in sorted(vars(args).iteritems()):
+        print('%s: %s' % (arg, value))
+    print('------------------------------------------------')
 
 
 def load_parameter(file_name, h, w):
@@ -119,7 +160,7 @@ def to_lodtensor(data, place):
     return res
 
 
-def main():
+def run_benchmark(args):
     # define network topology
     word = fluid.layers.data(
         name='word_data', shape=[1], dtype='int64', lod_level=1)
@@ -164,7 +205,7 @@ def main():
         num_chunk_types=int(math.ceil((label_dict_len - 1) / 2.0)))
 
     train_data = paddle.batch(
-        paddle.dataset.conll05.test(), batch_size=BATCH_SIZE)
+        paddle.dataset.conll05.test(), batch_size=args.batch_size)
     place = fluid.CPUPlace()
     feeder = fluid.DataFeeder(
         feed_list=[
@@ -178,27 +219,36 @@ def main():
     embedding_param = fluid.g_scope.find_var(embedding_name).get_tensor()
     embedding_param.set(
         load_parameter(conll05.get_embedding(), word_dict_len, word_dim), place)
-    
+
     batch_id = -1
-    for pass_id in xrange(PASS_NUM):
+    for pass_id in xrange(args.pass_num):
         chunk_evaluator.reset(exe)
         pass_start = time.time()
         batch_start = time.clock()
         for data in train_data():
             batch_id += 1
-            outs = exe.run(
-                fluid.default_main_program(),
-                feed=feeder.feed(data),
-                fetch_list=[avg_cost] + chunk_evaluator.metrics if batch_id % STEP == 0 else [])
+            outs = exe.run(fluid.default_main_program(),
+                           feed=feeder.feed(data),
+                           fetch_list=[avg_cost] + chunk_evaluator.metrics
+                           if batch_id % STEP == 0 else [])
             if batch_id % STEP == 0:
                 batch_end = time.clock()
-                pass_precision, pass_recall, pass_f1_score = chunk_evaluator.eval(exe)
-                print("pass_id:%d, batch_id:%d, avg_cost:%.5f  precision:%.5f  recal:%.5f  f1_score:%.5f, elapse:%f" %
-                     (pass_id, batch_id, outs[0][0], outs[1][0], 
-                      outs[2][0], outs[3][0], (batch_end - batch_start) / 1000))
+                pass_precision, pass_recall, pass_f1_score = chunk_evaluator.eval(
+                    exe)
+                print(
+                    "pass_id:%d, batch_id:%d, avg_cost:%.5f  precision:%.5f recal:%.5f  f1_score:%.5f, elapse:%f"
+                    % (pass_id, batch_id, outs[0][0], outs[1][0], outs[2][0],
+                       outs[3][0], (batch_end - batch_start) / 1000))
                 batch_start = time.clock()
         pass_end = time.clock()
         print("pass=%d, elapse=%f" % (pass_id, (pass_end - pass_start) / 1000))
 
+
 if __name__ == '__main__':
-    main()
+    args = parse_args()
+    print_arguments(args)
+    if args.use_nvprof and args.device == 'GPU':
+        with profiler.cuda_profiler("cuda_profiler.txt", 'csv') as nvprof:
+            run_benchmark(args)
+    else:
+        run_benchmark(args)

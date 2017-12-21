@@ -12,7 +12,7 @@ import paddle.v2.dataset.conll05 as conll05
 import paddle.v2.evaluator as evaluator
 from paddle.trainer_config_helpers import *
 
-STEP = 10
+STEP = 100
 word_dict, verb_dict, label_dict = conll05.get_dict()
 word_dict_len = len(word_dict)
 label_dict_len = len(label_dict)
@@ -37,7 +37,7 @@ def parse_args():
         default=200,
         help='The number of minibatches.')
     parser.add_argument(
-        '--pass_num', type=int, default=10, help='The number of passes.')
+        '--pass_num', type=int, default=5, help='The number of passes.')
     parser.add_argument(
         '--device',
         type=str,
@@ -282,12 +282,11 @@ def run_benchmark(args):
                 batch_end = time.clock()
                 metrics = [sub.split(".")[1] for sub in event.metrics.keys()]
                 metrics_val = event.metrics.values()
-                print("Pass %d, Batch %d, Cost %f, %s, %s, %s, elapse: %f" %
-                      (event.pass_id, event.batch_id, event.cost,
-                       metrics[0] + ":" + str(metrics_val[0]),
-                       metrics[1] + ":" + str(metrics_val[1]),
-                       metrics[2] + ":" + str(metrics_val[2]),
-                       (batch_end - ns.batch_start) / 1000))
+                print(
+                    "Pass %d, Batch %d, Cost %f, %s:%.5f, %s:%.5f, %s:%.5f, elapse: %f"
+                    % (event.pass_id, event.batch_id, event.cost, metrics[0],
+                       metrics_val[0], metrics[1], metrics_val[1], metrics[2],
+                       metrics_val[2], (batch_end - ns.batch_start) / 1000))
                 ns.batch_start = time.clock()
 
         if isinstance(event, paddle.event.EndPass):

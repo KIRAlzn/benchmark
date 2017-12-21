@@ -12,7 +12,7 @@ import paddle.v2.fluid as fluid
 import paddle.v2.fluid.profiler as profiler
 import paddle.v2.dataset.conll05 as conll05
 
-STEP = 10
+STEP = 100
 SEED = 4
 DTYPE = "float32"
 # random seed must set before configuring the network.
@@ -44,7 +44,7 @@ def parse_args():
         default=200,
         help='The number of minibatches.')
     parser.add_argument(
-        '--pass_num', type=int, default=10, help='The number of passes.')
+        '--pass_num', type=int, default=5, help='The number of passes.')
     parser.add_argument(
         '--device',
         type=str,

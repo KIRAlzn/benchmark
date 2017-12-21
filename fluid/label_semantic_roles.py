@@ -220,11 +220,11 @@ def run_benchmark(args):
     embedding_param.set(
         load_parameter(conll05.get_embedding(), word_dict_len, word_dim), place)
 
-    batch_id = -1
     for pass_id in xrange(args.pass_num):
         chunk_evaluator.reset(exe)
-        pass_start = time.time()
+        pass_start = time.clock()
         batch_start = time.clock()
+        batch_id = -1
         for data in train_data():
             batch_id += 1
             outs = exe.run(fluid.default_main_program(),

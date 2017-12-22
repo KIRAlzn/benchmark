@@ -194,8 +194,8 @@ def run_benchmark(model, args):
                 batch_end_time = time.clock()
                 pass_acc = accuracy.eval(exe)
                 print(
-                    "Iter: %d, loss: %.5f, acc: %.5f, pass_acc: %.5f, elapse: %f"
-                    % (iter, loss[0], acc[0], pass_acc[0],
+                    "Pass_id:%d, batch_id:%d, Iter: %d, loss: %.5f, acc: %.5f, pass_acc: %.5f, elapse: %f"
+                    % (pass_id, batch_id, iter, loss[0], acc[0], pass_acc[0],
                        (batch_end_time - batch_start_time)))
                 batch_start_time = time.clock()
             iter += 1

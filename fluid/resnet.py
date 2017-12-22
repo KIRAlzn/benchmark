@@ -39,6 +39,8 @@ def parse_args():
     parser.add_argument(
         '--pass_num', type=int, default=100, help='The number of passes.')
     parser.add_argument(
+        '--step', type=int, default=5, help='The number of passes.')
+    parser.add_argument(
         '--order',
         type=str,
         default='NCHW',
@@ -185,17 +187,17 @@ def run_benchmark(model, args):
                                      data)).astype('float32')
                 label = np.array(map(lambda x: x[1], data)).astype('int64')
                 label = label.reshape([-1, 1])
-            loss, acc = exe.run(fluid.default_main_program(),
+            outs = exe.run(fluid.default_main_program(),
                                 feed={'data': image,
                                       'label': label},
                                 fetch_list=[avg_cost] + accuracy.metrics
-                                if batch_id % 100 == 0 else [])
-            if batch_id % 100 == 0:
+                                if batch_id % args.step == 0 else [])
+            if batch_id % args.step == 0:
                 batch_end_time = time.clock()
                 pass_acc = accuracy.eval(exe)
                 print(
                     "Pass_id:%d, batch_id:%d, Iter: %d, loss: %.5f, acc: %.5f, pass_acc: %.5f, elapse: %f"
-                    % (pass_id, batch_id, iter, loss[0], acc[0], pass_acc[0],
+                    % (pass_id, batch_id, iter, outs[0][0], outs[1][0], pass_acc[0],
                        (batch_end_time - batch_start_time)))
                 batch_start_time = time.clock()
             iter += 1

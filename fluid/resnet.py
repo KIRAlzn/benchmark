@@ -200,11 +200,9 @@ def run_benchmark(model, args):
                 batch_start_time = time.clock()
             iter += 1
             im_num += label.shape[0]
-
         pass_end_time = time.clock()
         print("Iter: %d, elapse: %f" % (iter,
                                         (pass_end_time - pass_start_time)))
-
     duration = time.clock() - start_time
     im_num = im_num - args.skip_batch_num * args.batch_size
     examples_per_sec = im_num / duration

@@ -47,7 +47,7 @@ def parse_args():
     parser.add_argument(
         '--device',
         type=str,
-        default='GPU',
+        default='CPU',
         choices=['CPU', 'GPU'],
         help='The device type.')
     parser.add_argument(
@@ -63,7 +63,8 @@ def parse_args():
 
 
 def print_arguments(args):
-    vars(args)['use_nvprof'] = (vars(args)['use_nvprof'] and vars(args)['device']=='GPU')
+    vars(args)['use_nvprof'] = (vars(args)['use_nvprof'] and
+                                vars(args)['device'] == 'GPU')
     print('-----------  Configuration Arguments -----------')
     for arg, value in sorted(vars(args).iteritems()):
         print('%s: %s' % (arg, value))
@@ -172,9 +173,11 @@ def run_benchmark(model, args):
         accuracy.reset(exe)
         if iter == args.iterations:
             break
+        pass_start_time = time.clock()
+        batch_start_time = time.clock()
         for batch_id, data in enumerate(train_reader()):
             if iter == args.skip_batch_num:
-                start_time = time.time()
+                start_time = time.clock()
             if iter == args.iterations:
                 break
             if not args.use_fake_data:
@@ -185,14 +188,24 @@ def run_benchmark(model, args):
             loss, acc = exe.run(fluid.default_main_program(),
                                 feed={'data': image,
                                       'label': label},
-                                fetch_list=[avg_cost] + accuracy.metrics)
-            pass_acc = accuracy.eval(exe)
-            print("Iter: %d, loss: %s, acc: %s, pass_acc: %s" %
-                  (iter, str(loss), str(acc), str(pass_acc)))
+                                fetch_list=[avg_cost] + accuracy.metrics
+                                if batch_id % 100 == 0 else [])
+            if batch_id % 100 == 0:
+                batch_end_time = time.clock()
+                pass_acc = accuracy.eval(exe)
+                print(
+                    "Iter: %d, loss: %.5f, acc: %.5f, pass_acc: %.5f, elapse: %f"
+                    % (iter, loss[0], acc[0], pass_acc[0],
+                       (batch_end_time - batch_start_time)))
+                batch_start_time = time.clock()
             iter += 1
             im_num += label.shape[0]
 
-    duration = time.time() - start_time
+        pass_end_time = time.clock()
+        print("Iter: %d, elapse: %f" % (iter,
+                                        (pass_end_time - pass_start_time)))
+
+    duration = time.clock() - start_time
     im_num = im_num - args.skip_batch_num * args.batch_size
     examples_per_sec = im_num / duration
     sec_per_batch = duration / (iter - args.skip_batch_num)

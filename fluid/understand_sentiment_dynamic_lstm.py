@@ -35,6 +35,8 @@ def parse_args():
         choices=['CPU', 'GPU'],
         help='The device type.')
     parser.add_argument(
+        '--device_id', type=int, default=0, help='The device id.')
+    parser.add_argument(
         '--infer_only', action='store_true', help='If set, run forward only.')
     parser.add_argument(
         '--use_cprof', action='store_true', help='If set, use cProfile.')
@@ -119,7 +121,8 @@ def run_benchmark(model, args):
         paddle.reader.shuffle(
             paddle.dataset.imdb.train(word_dict), buf_size=25000),
         batch_size=args.batch_size)
-    place = fluid.CPUPlace() if args.device == 'CPU' else fluid.GPUPlace(0)
+    place = fluid.CPUPlace() if args.device == 'CPU' else fluid.GPUPlace(
+        args.device_id)
     exe = fluid.Executor(place)
     exe.run(fluid.default_startup_program())
 
@@ -127,6 +130,8 @@ def run_benchmark(model, args):
         accuracy.reset(exe)
         if iter == args.iterations:
             break
+        pass_start_time = time.clock()
+        batch_start_time = time.clock()
         for data in train_reader():
             tensor_words = to_lodtensor(map(lambda x: x[0], data), place)
 

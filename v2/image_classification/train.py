@@ -36,7 +36,7 @@ def main():
     parser.add_argument(
         '--batch_size', type=int, default=32, help='The minibatch size.')
     parser.add_argument(
-        '--log_step', type=int, default=10, help='The minibatch size.')
+        '--log_step', type=int, default=100, help='The minibatch size.')
     parser.add_argument(
         '--skip_iter', type=int, default=20, help='The minibatch size.')
     parser.add_argument(

@@ -186,11 +186,13 @@ def run_benchmark(model, args):
                                      data)).astype('float32')
                 label = np.array(map(lambda x: x[1], data)).astype('int64')
                 label = label.reshape([-1, 1])
+
             outs = exe.run(fluid.default_main_program(),
                            feed={'data': image,
                                  'label': label},
                            fetch_list=[avg_cost] + accuracy.metrics
                            if batch_id % args.step == 0 else [])
+
             if batch_id % args.step == 0:
                 batch_end_time = time.time()
                 pass_acc = accuracy.eval(exe)
@@ -199,12 +201,14 @@ def run_benchmark(model, args):
                     % (pass_id, batch_id, iter, outs[0][0], outs[1][0],
                        pass_acc[0], (batch_end_time - batch_start_time)))
                 batch_start_time = time.time()
+
             im_num += label.shape[0]
             if iter == args.skip_batch_num:
                 start_time = time.time()
             if iter == args.iterations:
                 break
             iter += 1
+
         pass_end_time = time.time()
         print("Iter: %d, elapse: %f" % (iter,
                                         (pass_end_time - pass_start_time)))

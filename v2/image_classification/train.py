@@ -123,28 +123,35 @@ def main():
     ns.end = time.time()
     ns.batch_size = args.batch_size
     ns.log_step = args.log_step
-    ns.iterator = -1
+    ns.iterator = 0
     ns.end_iter = args.skip_iter + args.record_iter
     ns.skip_iter = args.skip_iter
 
     # End batch and end pass event handler
     def event_handler(event):
         if isinstance(event, paddle.event.EndIteration):
-            ns.iterator += 1
+
             if event.batch_id % ns.log_step == 0:
                 batch_end = time.time()
                 print "\nPass %d, Batch %d, Cost %f, %s, elapse:%f" % (
                     event.pass_id, event.batch_id, event.cost, event.metrics,
                     (batch_end - ns.batch_start))
                 ns.batch_start = time.time()
+
             if ns.iterator == ns.skip_iter:
                 ns.start = time.time()
             if ns.iterator == ns.end_iter:
-                ns.end = time.time()
-                samples = (ns.iterator - ns.skip_iter) * ns.batch_size
-                print("iterators:%d, smaples/s:%f, s/batch:%f" % (
-                    ns.iterator - ns.skip_iter, samples / (ns.end - ns.start),
-                    (ns.end - ns.start) / (ns.iterator - ns.skip_iter)))
+                duration = time.time() - ns.start
+                im_num = (ns.iterator - ns.skip_iter) * ns.batch_size
+                examples_per_sec = im_num / duration
+                sec_per_batch = duration / (iter - args.skip_batch_num)
+
+                print('\nTotal examples: %d, total time: %.5f' %
+                      (im_num, duration))
+                print('%.5f examples/sec, %.5f sec/batch \n' %
+                      (examples_per_sec, sec_per_batch))
+
+            ns.iterator += 1
         if isinstance(event, paddle.event.EndPass):
             pass_end = time.time()
             # with gzip.open('params_pass_%d.tar.gz' % event.pass_id, 'w') as f:

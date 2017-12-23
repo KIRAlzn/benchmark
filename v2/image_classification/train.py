@@ -1,5 +1,6 @@
 import gzip
 import argparse
+import time
 
 import paddle.v2.dataset.flowers as flowers
 import paddle.v2 as paddle
@@ -12,23 +13,35 @@ import inception_resnet_v2
 
 DATA_DIM = 3 * 224 * 224  # Use 3 * 331 * 331 or 3 * 299 * 299 for Inception-ResNet-v2.
 CLASS_DIM = 102
-BATCH_SIZE = 128
 
 
 def main():
     # parse the argument
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        'model',
+        '--model',
+        type=str,
+        default='resnet',
         help='The model for image classification',
         choices=[
             'alexnet', 'vgg13', 'vgg16', 'vgg19', 'resnet', 'googlenet',
             'inception-resnet-v2'
         ])
+    parser.add_argument(
+        '--device',
+        type=str,
+        default='GPU',
+        choices=['CPU', 'GPU'],
+        help='The device type.')
+    parser.add_argument(
+        '--batch_size', type=int, default=32, help='The minibatch size.')
+    parser.add_argument(
+        '--log_step', type=int, default=10, help='The minibatch size.')
+
     args = parser.parse_args()
 
     # PaddlePaddle init
-    paddle.init(use_gpu=True, trainer_count=1)
+    paddle.init(use_gpu=args.device == 'GPU', trainer_count=1)
 
     image = paddle.layer.data(
         name="image", type=paddle.data_type.dense_vector(DATA_DIM))
@@ -70,45 +83,71 @@ def main():
     # Create optimizer
     optimizer = paddle.optimizer.Momentum(
         momentum=0.9,
-        regularization=paddle.optimizer.L2Regularization(rate=0.0005 *
-                                                         BATCH_SIZE),
-        learning_rate=learning_rate / BATCH_SIZE,
-        learning_rate_decay_a=0.1,
-        learning_rate_decay_b=128000 * 35,
-        learning_rate_schedule="discexp", )
+        learning_rate=learning_rate / args.batch_size, )
+    # learning_rate_decay_a=0.1,
+    # learning_rate_decay_b=128000 * 35,
+    # learning_rate_schedule="discexp", 
+    # regularization=paddle.optimizer.L2Regularization(rate=0.0005 *
+    #                                                  args.batch_size),)
 
     train_reader = paddle.batch(
         paddle.reader.shuffle(
             flowers.train(),
             # To use other data, replace the above line with:
             # reader.train_reader('train.list'),
-            buf_size=1000),
-        batch_size=BATCH_SIZE)
+            buf_size=5120),
+        batch_size=args.batch_size)
     test_reader = paddle.batch(
         flowers.valid(),
         # To use other data, replace the above line with:
         # reader.test_reader('val.list'),
-        batch_size=BATCH_SIZE)
+        batch_size=args.batch_size)
 
     # Create trainer
-    trainer = paddle.trainer.SGD(
-        cost=cost,
-        parameters=parameters,
-        update_equation=optimizer,
-        extra_layers=extra_layers)
+    trainer = paddle.trainer.SGD(cost=cost,
+                                 parameters=parameters,
+                                 update_equation=optimizer,
+                                 extra_layers=extra_layers)
+
+    class NameSpace:
+        pass
+
+    ns = NameSpace()
+    ns.pass_start = time.time()
+    ns.batch_start = time.time()
+    ns.start = time.time()
+    ns.end = time.time()
+    ns.samples = 0
+    ns.batch_size = args.batch_size
+    ns.log_step = args.log_step
+    ns.iterator = -1
+    ns.end_iter = 55
+    ns.skip_iter = 5
 
     # End batch and end pass event handler
     def event_handler(event):
         if isinstance(event, paddle.event.EndIteration):
-            if event.batch_id % 1 == 0:
-                print "\nPass %d, Batch %d, Cost %f, %s" % (
-                    event.pass_id, event.batch_id, event.cost, event.metrics)
+            ns.iterator += 1
+            if ns.iterator == ns.skip_iter:
+                ns.start = time.time()
+            if ns.iterator == ns.end_iter:
+                ns.end = time.time()
+                samples = (ns.iterator - ns.skip_iter) * ns.batch_size
+                print("iterators:%d, smaples/s:%f" % (ns.iterator - ns.skip_iter, samples/(ns.end-ns.start)))
+            if event.batch_id % ns.log_step == 0:
+                batch_end = time.time()
+                print "\nPass %d, Batch %d, Cost %f, %s, elapse:%f" % (
+                    event.pass_id, event.batch_id, event.cost, event.metrics,
+                    (batch_end - ns.batch_start))
+                ns.batch_start = time.time()
         if isinstance(event, paddle.event.EndPass):
-            with gzip.open('params_pass_%d.tar.gz' % event.pass_id, 'w') as f:
-                trainer.save_parameter_to_tar(f)
-
-            result = trainer.test(reader=test_reader)
-            print "\nTest with Pass %d, %s" % (event.pass_id, result.metrics)
+            pass_end = time.time()
+            # with gzip.open('params_pass_%d.tar.gz' % event.pass_id, 'w') as f:
+            #     trainer.save_parameter_to_tar(f)
+            # result = trainer.test(reader=test_reader)
+            print "\nTest with Pass %d, %s,elapse:%f" % (
+                event.pass_id, result.metrics, (pass_end - ns.pass_start))
+            ns.pass_start = time.time()
 
     trainer.train(
         reader=train_reader, num_passes=200, event_handler=event_handler)

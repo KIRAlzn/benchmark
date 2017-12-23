@@ -188,17 +188,17 @@ def run_benchmark(model, args):
                 label = np.array(map(lambda x: x[1], data)).astype('int64')
                 label = label.reshape([-1, 1])
             outs = exe.run(fluid.default_main_program(),
-                                feed={'data': image,
-                                      'label': label},
-                                fetch_list=[avg_cost] + accuracy.metrics
-                                if batch_id % args.step == 0 else [])
-            if batch_id % args.step == 0:
+                           feed={'data': image,
+                                 'label': label},
+                           fetch_list=[avg_cost] + accuracy.metrics
+                           if (batch_id + 1) % args.step == 0 else [])
+            if (batch_id + 1) % args.step == 0:
                 batch_end_time = time.clock()
                 pass_acc = accuracy.eval(exe)
                 print(
                     "Pass_id:%d, batch_id:%d, Iter: %d, loss: %.5f, acc: %.5f, pass_acc: %.5f, elapse: %f"
-                    % (pass_id, batch_id, iter, outs[0][0], outs[1][0], pass_acc[0],
-                       (batch_end_time - batch_start_time)))
+                    % (pass_id, batch_id, iter, outs[0][0], outs[1][0],
+                       pass_acc[0], (batch_end_time - batch_start_time)))
                 batch_start_time = time.clock()
             iter += 1
             im_num += label.shape[0]

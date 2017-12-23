@@ -144,7 +144,7 @@ def main():
                 duration = time.time() - ns.start
                 im_num = (ns.iterator - ns.skip_iter) * ns.batch_size
                 examples_per_sec = im_num / duration
-                sec_per_batch = duration / (iter - args.skip_iter)
+                sec_per_batch = duration / (ns.iterator - args.skip_iter)
 
                 print('\nTotal examples: %d, total time: %.5f' %
                       (im_num, duration))

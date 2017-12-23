@@ -37,6 +37,10 @@ def main():
         '--batch_size', type=int, default=32, help='The minibatch size.')
     parser.add_argument(
         '--log_step', type=int, default=10, help='The minibatch size.')
+    parser.add_argument(
+        '--skip_iter', type=int, default=20, help='The minibatch size.')
+    parser.add_argument(
+        '--record_iter', type=int, default=100, help='The minibatch size.')
 
     args = parser.parse_args()
 
@@ -117,12 +121,11 @@ def main():
     ns.batch_start = time.time()
     ns.start = time.time()
     ns.end = time.time()
-    ns.samples = 0
     ns.batch_size = args.batch_size
     ns.log_step = args.log_step
     ns.iterator = -1
-    ns.end_iter = 55
-    ns.skip_iter = 5
+    ns.end_iter = args.skip_iter + args.record_iter
+    ns.skip_iter = args.skip_iter
 
     # End batch and end pass event handler
     def event_handler(event):
@@ -133,7 +136,8 @@ def main():
             if ns.iterator == ns.end_iter:
                 ns.end = time.time()
                 samples = (ns.iterator - ns.skip_iter) * ns.batch_size
-                print("iterators:%d, smaples/s:%f" % (ns.iterator - ns.skip_iter, samples/(ns.end-ns.start)))
+                print("iterators:%d, smaples/s:%f" % (
+                    ns.iterator - ns.skip_iter, samples / (ns.end - ns.start)))
             if event.batch_id % ns.log_step == 0:
                 batch_end = time.time()
                 print "\nPass %d, Batch %d, Cost %f, %s, elapse:%f" % (
@@ -145,8 +149,10 @@ def main():
             # with gzip.open('params_pass_%d.tar.gz' % event.pass_id, 'w') as f:
             #     trainer.save_parameter_to_tar(f)
             # result = trainer.test(reader=test_reader)
-            print "\nTest with Pass %d, %s,elapse:%f" % (
-                event.pass_id, result.metrics, (pass_end - ns.pass_start))
+            # print "\nTest with Pass %d, %s,elapse:%f" % (
+            #    event.pass_id, result.metrics, (pass_end - ns.pass_start))
+            print "\nTest with Pass %d,elapse:%f" % (event.pass_id,
+                                                     (pass_end - ns.pass_start))
             ns.pass_start = time.time()
 
     trainer.train(

@@ -31,15 +31,18 @@ def parse_args():
     parser.add_argument(
         '--skip_batch_num',
         type=int,
-        default=5,
+        default=20,
         help='The first num of minibatch num to skip, for better performance test'
     )
     parser.add_argument(
-        '--iterations', type=int, default=80, help='The number of minibatches.')
+        '--iterations',
+        type=int,
+        default=120,
+        help='The number of minibatches.')
     parser.add_argument(
         '--pass_num', type=int, default=100, help='The number of passes.')
     parser.add_argument(
-        '--step', type=int, default=5, help='The number of passes.')
+        '--step', type=int, default=100, help='The number of passes.')
     parser.add_argument(
         '--order',
         type=str,
@@ -191,8 +194,8 @@ def run_benchmark(model, args):
                            feed={'data': image,
                                  'label': label},
                            fetch_list=[avg_cost] + accuracy.metrics
-                           if (batch_id + 1) % args.step == 0 else [])
-            if (batch_id + 1) % args.step == 0:
+                           if batch_id % args.step == 0 else [])
+            if batch_id % args.step == 0:
                 batch_end_time = time.clock()
                 pass_acc = accuracy.eval(exe)
                 print(

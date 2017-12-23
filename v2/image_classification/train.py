@@ -131,19 +131,20 @@ def main():
     def event_handler(event):
         if isinstance(event, paddle.event.EndIteration):
             ns.iterator += 1
-            if ns.iterator == ns.skip_iter:
-                ns.start = time.time()
-            if ns.iterator == ns.end_iter:
-                ns.end = time.time()
-                samples = (ns.iterator - ns.skip_iter) * ns.batch_size
-                print("iterators:%d, smaples/s:%f" % (
-                    ns.iterator - ns.skip_iter, samples / (ns.end - ns.start)))
             if event.batch_id % ns.log_step == 0:
                 batch_end = time.time()
                 print "\nPass %d, Batch %d, Cost %f, %s, elapse:%f" % (
                     event.pass_id, event.batch_id, event.cost, event.metrics,
                     (batch_end - ns.batch_start))
                 ns.batch_start = time.time()
+            if ns.iterator == ns.skip_iter:
+                ns.start = time.time()
+            if ns.iterator == ns.end_iter:
+                ns.end = time.time()
+                samples = (ns.iterator - ns.skip_iter) * ns.batch_size
+                print("iterators:%d, smaples/s:%f, s/batch:%f" % (
+                    ns.iterator - ns.skip_iter, samples / (ns.end - ns.start),
+                    (ns.end - ns.start) / (ns.iterator - ns.skip_iter)))
         if isinstance(event, paddle.event.EndPass):
             pass_end = time.time()
             # with gzip.open('params_pass_%d.tar.gz' % event.pass_id, 'w') as f:
@@ -154,6 +155,7 @@ def main():
             print "\nTest with Pass %d,elapse:%f" % (event.pass_id,
                                                      (pass_end - ns.pass_start))
             ns.pass_start = time.time()
+            exit(1)
 
     trainer.train(
         reader=train_reader, num_passes=200, event_handler=event_handler)

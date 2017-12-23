@@ -181,10 +181,6 @@ def run_benchmark(model, args):
         pass_start_time = time.time()
         batch_start_time = time.time()
         for batch_id, data in enumerate(train_reader()):
-            if iter == args.skip_batch_num:
-                start_time = time.time()
-            if iter == args.iterations:
-                break
             if not args.use_fake_data:
                 image = np.array(map(lambda x: x[0].reshape(dshape),
                                      data)).astype('float32')
@@ -203,8 +199,12 @@ def run_benchmark(model, args):
                     % (pass_id, batch_id, iter, outs[0][0], outs[1][0],
                        pass_acc[0], (batch_end_time - batch_start_time)))
                 batch_start_time = time.time()
-            iter += 1
             im_num += label.shape[0]
+            if iter == args.skip_batch_num:
+                start_time = time.time()
+            if iter == args.iterations:
+                break
+            iter += 1
         pass_end_time = time.time()
         print("Iter: %d, elapse: %f" % (iter,
                                         (pass_end_time - pass_start_time)))

@@ -11,8 +11,8 @@ import alexnet
 import googlenet
 import inception_resnet_v2
 
-DATA_DIM = 3 * 224 * 224  # Use 3 * 331 * 331 or 3 * 299 * 299 for Inception-ResNet-v2.
-CLASS_DIM = 102
+DATA_DIM = 3*32*32 #3 * 224 * 224  # Use 3 * 331 * 331 or 3 * 299 * 299 for Inception-ResNet-v2.
+CLASS_DIM = 10 # 102
 
 
 def main():
@@ -96,13 +96,13 @@ def main():
 
     train_reader = paddle.batch(
         paddle.reader.shuffle(
-            flowers.train(),
+            paddle.dataset.cifar.train10() ,# flowers.train(),
             # To use other data, replace the above line with:
             # reader.train_reader('train.list'),
             buf_size=5120),
         batch_size=args.batch_size)
     test_reader = paddle.batch(
-        flowers.valid(),
+        paddle.dataset.cifar.test10(), #flowers.valid(),
         # To use other data, replace the above line with:
         # reader.test_reader('val.list'),
         batch_size=args.batch_size)

@@ -111,19 +111,18 @@ def main():
     num_samples = 0
     for pass_id in range(args.num_passes):
         # train
-        start_time = time.time()
         batch_start_time = time.time()
 
         accuracy.reset(exe)
         for batch_id, data in enumerate(train_reader()):
             img_data = np.array(map(lambda x: x[0].reshape(data_shape),
                                     data)).astype("float32")
-            y_data = np.array(map(lambda x: x[1], data)).astype("int64")
-            y_data = y_data.reshape([-1, 1])
+            label = np.array(map(lambda x: x[1], data)).astype("int64")
+            label = label.reshape([-1, 1])
 
             outs = exe.run(fluid.default_main_program(),
                            feed={"pixel": img_data,
-                                 "label": y_data},
+                                 "label": label},
                            fetch_list=[avg_cost] + accuracy.metrics
                            if batch_id % args.step == 0 else [])
 

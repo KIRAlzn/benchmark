@@ -119,6 +119,7 @@ def main():
             img_data = np.array(map(lambda x: x[0].reshape(data_shape),
                                     data)).astype("float32")
             y_data = np.array(map(lambda x: x[1], data)).astype("int64")
+            y_data = y_data.reshape([-1, 1])
 
             outs = exe.run(fluid.default_main_program(),
                            feed={"pixel": img_data,
@@ -135,7 +136,7 @@ def main():
                        pass_acc[0], (batch_end_time - batch_start_time)))
                 batch_start_time = time.time()
 
-            num_samples += label.shape[0]
+            num_samples += label.shape[0] if iters >= args.skip_batch_num else 0
             if iters == args.skip_batch_num:
                 start_time = time.time()
             if iters == args.iterations:
@@ -160,6 +161,8 @@ def main():
         print(
             "Pass = %d, Training performance = %f imgs/s, Test accuracy = %f\n"
             % (pass_id, num_samples / pass_elapsed, 0))
+        if iters == args.iterations:
+            break
 
 
 def print_arguments():

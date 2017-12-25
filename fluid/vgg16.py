@@ -6,6 +6,7 @@ import time
 import numpy as np
 import paddle.v2 as paddle
 import paddle.v2.fluid as fluid
+import paddle.v2.fluid.core as core
 import argparse
 import functools
 
@@ -102,7 +103,7 @@ def main():
         batch_size=args.batch_size)
     test_reader = paddle.batch(paddle.dataset.cifar.test10(), batch_size=100)
 
-    place = fluid.CPUPlace() if args.device == 'CPU' else fluid.GPUPlace(0)
+    place = core.CPUPlace() if args.device == 'CPU' else core.CUDAPlace(0)
     exe = fluid.Executor(place)
 
     exe.run(fluid.default_startup_program())

@@ -160,6 +160,13 @@ def main():
         print(
             "Pass = %d, Training performance = %f imgs/s, Test accuracy = %f\n"
             % (pass_id, num_samples / pass_elapsed, 0))
+
+        print('\nTotal examples: %d, total time: %.5f' %
+              (num_samples, pass_elapsed))
+        print('%.5f examples/sec, %.5f sec/batch \n' %
+              (num_samples / pass_elapsed,
+               (args.iterations - args.skip_batch_num) / pass_elapsed))
+
         if iters == args.iterations:
             break
 

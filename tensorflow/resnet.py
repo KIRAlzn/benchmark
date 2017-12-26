@@ -12,7 +12,7 @@ import numpy as np
 
 import paddle.v2 as paddle
 import tensorflow as tf
-
+import time
 DTYPE = tf.float32
 
 
@@ -449,6 +449,7 @@ def run_benchmark(args, data_format='channels_last', device='/cpu:0'):
         for pass_id in range(args.pass_num):
             if iter == args.iterations:
                 break
+            batch_start_time=time.time()  
             for batch_id, data in enumerate(train_reader()):
                 if iter == args.skip_batch_num:
                     start_time = time.time()
@@ -463,8 +464,13 @@ def run_benchmark(args, data_format='channels_last', device='/cpu:0'):
                     [train_op, avg_cost, accuracy, g_accuracy],
                     feed_dict={images: images_data,
                                labels: labels_data})
-                print("pass=%d, batch=%d, loss=%f, acc=%f\n" %
-                      (pass_id, batch_id, loss, acc))
+                if batch_id % 100 == 0:
+                    batch_end_time = time.time()
+                    print(
+                        "Pass_id:%d, batch_id:%d, Iter: %d, elapse: %f" % (pass_id, batch_id, iter, (batch_end_time - batch_start_time)))
+                    batch_start_time = time.time()
+                #print("pass=%d, batch=%d, loss=%f, acc=%f\n" %
+                #      (pass_id, batch_id, loss, acc))
                 iter += 1
 
         duration = time.time() - start_time

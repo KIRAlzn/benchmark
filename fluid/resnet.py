@@ -12,7 +12,7 @@ import cProfile, pstats, StringIO
 import paddle.v2 as paddle
 import paddle.v2.fluid as fluid
 import paddle.v2.fluid.profiler as profiler
-
+import paddle.v2.fluid.core as core
 
 def parse_args():
     parser = argparse.ArgumentParser('Convolution model benchmark.')
@@ -161,7 +161,7 @@ def run_benchmark(model, args):
             paddle.dataset.flowers.train(), buf_size=5120),
         batch_size=args.batch_size)
 
-    place = fluid.CPUPlace() if args.device == 'CPU' else fluid.GPUPlace(0)
+    place = core.CPUPlace() if args.device == 'CPU' else core.CUDAPlace(0)
     exe = fluid.Executor(place)
     exe.run(fluid.default_startup_program())
 

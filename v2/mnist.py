@@ -143,10 +143,9 @@ def run_benchmark(model, args):
                                  update_equation=optimizer)
 
     # init v2 parameter with fluid init
-    with open('./v2/params_pass_0.tar', 'r') as f:
-        v2_fluid_init_parameters(
-            parameters, f, param_scale=param_scale, seed=SEED, dtype=DTYPE)
-
+    #with open('./v2/params_pass_0.tar', 'r') as f:
+    #    v2_fluid_init_parameters(
+    #        parameters, f, param_scale=param_scale, seed=SEED, dtype=DTYPE)
     class Namespace:
         pass
 
@@ -174,7 +173,7 @@ def run_benchmark(model, args):
 
     trainer.train(
         reader=paddle.batch(
-            paddle.dataset.mnist.train(), batch_size=args.batch_size),
+             paddle.reader.shuffle(paddle.dataset.mnist.train(), buf_size=8192), batch_size=args.batch_size),
         event_handler=event_handler,
         num_passes=args.pass_num)
 

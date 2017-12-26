@@ -9,11 +9,12 @@ import time
 import paddle.v2 as paddle
 import paddle.v2.fluid as fluid
 import paddle.v2.fluid.profiler as profiler
+import paddle.v2.fluid.core as core
 
-SEED = 1
+SEED = 0
 DTYPE = "float32"
 # random seed must set before configuring the network.
-fluid.default_startup_program().random_seed = SEED
+#fluid.default_startup_program().random_seed = SEED
 
 
 def parse_args():
@@ -113,6 +114,8 @@ def run_benchmark(model, args):
 
     cost = fluid.layers.cross_entropy(input=predict, label=label)
     avg_cost = fluid.layers.mean(x=cost)
+    #opt = fluid.optimizer.Momentum(learning_rate=0.001, momentum=0.9)
+        #regularization=fluid.regularizer.L2DecayRegularizer(regularization_coeff=0.0005))
     opt = fluid.optimizer.AdamOptimizer(
         learning_rate=0.001, beta1=0.9, beta2=0.999)
     opt.minimize(avg_cost)
@@ -120,17 +123,18 @@ def run_benchmark(model, args):
     accuracy = fluid.evaluator.Accuracy(input=predict, label=label)
 
     train_reader = paddle.batch(
-        paddle.dataset.mnist.train(), batch_size=args.batch_size)
+        paddle.reader.shuffle(paddle.dataset.mnist.train(), buf_size=8192),       
+        batch_size=args.batch_size)
 
-    place = fluid.CPUPlace() if args.device == 'CPU' else fluid.GPUPlace(0)
+    place = core.CPUPlace() if args.device == 'CPU' else core.CUDAPlace(0)
     exe = fluid.Executor(place)
 
     exe.run(fluid.default_startup_program())
 
     for pass_id in range(args.pass_num):
         accuracy.reset(exe)
-        pass_start = time.clock()
-        batch_start = time.clock()
+        pass_start = time.time()
+        batch_start = time.time()
         for batch_id, data in enumerate(train_reader()):
             img_data = np.array(
                 map(lambda x: x[0].reshape([1, 28, 28]), data)).astype(DTYPE)
@@ -142,15 +146,15 @@ def run_benchmark(model, args):
                                  "label": y_data},
                            fetch_list=[avg_cost] + accuracy.metrics if batch_id % 100 == 0 else [])
             if batch_id % 100 == 0:
-                batch_end = time.clock()
+                batch_end = time.time()
                 loss = np.array(outs[0])
                 acc = np.array(outs[1])
-                print("pass=%d, batch=%d, loss=%f, error=%f, elapse=%f" %
+                print("pass=%d, batch=%d, loss=%f, error=%f, elapse=%f, avg_time=%f s/batch" %
                       (pass_id, batch_id, loss, 1 - acc,
-                       (batch_end - batch_start) / 1000))
-                batch_start = time.clock()
+                       (batch_end - batch_start) / 1000, (batch_end-batch_start)/100))
+                batch_start = time.time()
 
-        pass_end = time.clock()
+        pass_end = time.time()
         test_avg_acc = eval_test(exe, accuracy,avg_cost)
         pass_acc = accuracy.eval(exe)
         print("pass=%d, training_avg_acc=%f, test_avg_acc=%f, elapse=%f" %

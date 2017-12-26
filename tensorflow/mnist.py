@@ -12,7 +12,7 @@ import paddle.v2.fluid as fluid
 
 BATCH_SIZE = 128
 PASS_NUM = 5
-SEED = 1
+SEED = 0
 DTYPE = tf.float32
 
 
@@ -39,7 +39,7 @@ def paddle_random_normal(shape, loc=.0, scale=1., seed=1, dtype="float32"):
     return np.array(out[0])
 
 
-train_reader = paddle.batch(paddle.dataset.mnist.train(), batch_size=BATCH_SIZE)
+train_reader = paddle.batch(paddle.reader.shuffle(paddle.dataset.mnist.train(), buf_size=8192), batch_size=BATCH_SIZE)
 images = tf.placeholder(DTYPE, shape=(None, 28, 28, 1))
 labels = tf.placeholder(tf.int64, shape=(None, ))
 
@@ -106,7 +106,6 @@ g_accuracy = tf.metrics.accuracy(labels, tf.argmax(prediction, axis=1))
 opt = tf.train.AdamOptimizer(learning_rate=0.001, beta1=0.9, beta2=0.999)
 train_op = opt.minimize(avg_cost)
 
-
 def eval_test():
     test_reader = paddle.batch(
         paddle.dataset.mnist.test(), batch_size=BATCH_SIZE)
@@ -120,11 +119,6 @@ def eval_test():
                        labels: labels_data})
     return g_acc[1]
 
-data = next(train_reader())
-images_data = np.array(
-    map(lambda x: np.transpose(x[0].reshape([1, 28, 28]), axes=[1,2,0]), data)).astype("float32")
-labels_data = np.array(map(lambda x: x[1], data)).astype("int64")
-
 config = tf.ConfigProto(
     intra_op_parallelism_threads=1, inter_op_parallelism_threads=1)
 with tf.Session(config=config) as sess:
@@ -133,22 +127,24 @@ with tf.Session(config=config) as sess:
     sess.run(init_g)
     sess.run(init_l)
     for pass_id in range(PASS_NUM):
-        pass_start = time.clock()
-        start = time.clock()
-        for batch_id in range(468) :
-
+        pass_start = time.time()
+        start = time.time()
+        for batch_id, data in enumerate(train_reader()):
+            images_data = np.array(
+                map(lambda x: np.transpose(x[0].reshape([1, 28, 28]), axes=[1,2,0]), data)).astype("float32")
+            labels_data = np.array(map(lambda x: x[1], data)).astype("int64")
             _, loss, acc, g_acc = sess.run(
                 [train_op, avg_cost, accuracy, g_accuracy],
                 feed_dict={images: images_data,
-                           labels: labels_data})
+                           labels: labels_data}) 
 
             if batch_id % 100 == 0:
-                end = time.clock()
+                end = time.time()
                 print("pass=%d, batch=%d, loss=%f, error=%f, elapse=%f" %
-                      (pass_id, batch_id, loss, 1 - acc, (end - start) / 1000))
-                start = time.clock()
+                  (pass_id, batch_id, loss, 1 - acc, (end - start) / 1000))
+                start = time.time()
 
-        pass_end = time.clock()
+        pass_end = time.time()
         test_avg_acc = eval_test()
         print("pass=%d, training_avg_accuracy=%f, test_avg_acc=%f, elapse=%f" %
               (pass_id, g_acc[1], test_avg_acc, (pass_end - pass_start) / 1000))

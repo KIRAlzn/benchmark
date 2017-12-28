@@ -14,6 +14,7 @@ import paddle.v2.fluid as fluid
 import paddle.v2.fluid.profiler as profiler
 import paddle.v2.fluid.core as core
 
+
 def parse_args():
     parser = argparse.ArgumentParser('Convolution model benchmark.')
     parser.add_argument(
@@ -186,7 +187,6 @@ def run_benchmark(model, args):
                                      data)).astype('float32')
                 label = np.array(map(lambda x: x[1], data)).astype('int64')
                 label = label.reshape([-1, 1])
-
             outs = exe.run(fluid.default_main_program(),
                            feed={'data': image,
                                  'label': label},

@@ -77,7 +77,14 @@ def run_benchmark(args):
 
         correct = tf.equal(tf.argmax(prediction, 1), labels)
         accuracy = tf.reduce_mean(tf.cast(correct, tf.float32))
-        g_accuracy = tf.metrics.accuracy(labels, tf.argmax(prediction, axis=1))
+
+        with tf.variable_scope("reset_metrics_accuracy_scope") as scope:
+            g_accuracy = tf.metrics.accuracy(
+                labels, tf.argmax(
+                    prediction, axis=1))
+            vars = tf.contrib.framework.get_variables(
+                scope, collection=tf.GraphKeys.LOCAL_VARIABLES)
+            g_accuracy_reset_op = tf.variables_initializer(vars)
 
         opt = tf.train.AdamOptimizer(
             learning_rate=0.001, beta1=0.9, beta2=0.999)
@@ -90,6 +97,7 @@ def run_benchmark(args):
         paddle.dataset.mnist.test(), batch_size=args.batch_size)
 
     def eval_test():
+        sess.run(g_accuracy_reset_op)
         for batch_id, data in enumerate(test_reader()):
             images_data = np.array(
                 map(lambda x: np.transpose(x[0].reshape([1, 28, 28]), axes=[1,2,0]), data)).astype("float32")
@@ -109,6 +117,7 @@ def run_benchmark(args):
         sess.run(init_g)
         sess.run(init_l)
         for pass_id in range(args.pass_num):
+            sess.run(g_accuracy_reset_op)
             pass_start = time.time()
             for batch_id, data in enumerate(train_reader()):
                 images_data = np.array(
@@ -125,6 +134,7 @@ def run_benchmark(args):
                 print("pass=%d, batch=%d, loss=%f, error=%f, elapse=%f" %
                       (pass_id, batch_id, loss, 1 - acc, (end - start) / 1000))
             pass_end = time.time()
+
             test_avg_acc = eval_test()
             print(
                 "pass=%d, training_avg_accuracy=%f, test_avg_acc=%f, elapse=%f"

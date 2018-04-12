@@ -126,6 +126,17 @@ def main():
     # Parameter initialization
     exe.run(fluid.default_startup_program())
 
+    train_exe = fluid.ParallelExecutor(
+        loss_name=avg_cost.name,
+        main_program=fluid.default_main_program(),
+        use_cuda=True,
+        allow_op_delay=True)
+
+    test_exe = fluid.ParallelExecutor(
+        main_program=inference_program,
+        use_cuda=True,
+        share_vars_from=train_exe)
+
     # data reader
     train_reader = paddle.batch(
         paddle.reader.shuffle(
@@ -139,7 +150,7 @@ def main():
         batch_size=args.batch_size)
 
     # test
-    def test(exe):
+    def test(test_exe):
         test_accuracy = fluid.average.WeightedAverage()
         for batch_id, data in enumerate(test_reader()):
             img_data = np.array(map(lambda x: x[0].reshape(data_shape),
@@ -147,10 +158,10 @@ def main():
             y_data = np.array(map(lambda x: x[1], data)).astype("int64")
             y_data = y_data.reshape([-1, 1])
 
-            acc, weight = exe.run(inference_program,
-                                  feed={"pixel": img_data,
-                                        "label": y_data},
-                                  fetch_list=[batch_acc, batch_size_tensor])
+            acc, weight = test_exe.run(
+                [batch_acc.name, batch_size_tensor.name],
+                feed_dict={"pixel": img_data,
+                           "label": y_data})
             test_accuracy.add(value=acc, weight=weight)
         return test_accuracy.eval()
 
@@ -171,11 +182,11 @@ def main():
             y_data = np.array(map(lambda x: x[1], data)).astype("int64")
             y_data = y_data.reshape([-1, 1])
 
-            loss, acc, weight = exe.run(
-                fluid.default_main_program(),
-                feed={"pixel": img_data,
-                      "label": y_data},
-                fetch_list=[avg_cost, batch_acc, batch_size_tensor])
+            loss, acc, weight = train_exe.run(
+                [avg_cost.name, batch_acc.name, batch_size_tensor.name],  #
+                feed_dict={"pixel": img_data,
+                           "label": y_data})
+
             accuracy.add(value=acc, weight=weight)
             iters += 1
             num_samples += len(y_data)
@@ -196,9 +207,7 @@ def main():
         # evaluation
         if args.with_test:
             pass_test_acc = test(exe)
-            print("Pass: %d, Test Accuray: %f\n" % (pass_id, pass_test_acc))
-
-        # exit(0)
+        exit(0)
 
 
 def print_arguments():

@@ -110,10 +110,7 @@ def run_benchmark(model, args):
     start_time = time.time()
 
     # parallel_exe
-    #main = fluid.Program()
-    #startup = fluid.Program()
 
-    #with fluid.program_guard(main, startup):
     # Input data
     images = fluid.layers.data(name='pixel', shape=[1, 28, 28], dtype=DTYPE)
     label = fluid.layers.data(name='label', shape=[1], dtype='int64')
@@ -145,11 +142,13 @@ def run_benchmark(model, args):
     exe = fluid.Executor(place)
     exe.run(fluid.default_startup_program())
 
-    exe = fluid.ParallelExecutor(
+    train_exe = fluid.ParallelExecutor(
         loss_name=avg_cost.name, use_cuda=True, allow_op_delay=True)
 
     test_exe = fluid.ParallelExecutor(
-        use_cuda=True, main_program=inference_program, share_vars_from=exe)
+        use_cuda=True,
+        main_program=inference_program,
+        share_vars_from=train_exe)
 
     # Reader
     train_reader = paddle.batch(
@@ -172,7 +171,7 @@ def run_benchmark(model, args):
             y_data = np.array(map(lambda x: x[1], data)).astype("int64")
             y_data = y_data.reshape([len(y_data), 1])
 
-            outs = exe.run(
+            outs = train_exe.run(
                 [avg_cost.name, batch_acc.name, batch_size_tensor.name],  #
                 feed_dict={"pixel": img_data,
                            "label": y_data}

@@ -143,6 +143,9 @@ def run_benchmark(model, args):
     # Parameter initialization
     exe.run(fluid.default_startup_program())
 
+    fluid.io.save_params(
+        exe, "./mnist_para", main_program=fluid.default_startup_program())
+    exit(1)
     # Reader
     train_reader = paddle.batch(
         paddle.dataset.mnist.train(), batch_size=args.batch_size)
@@ -154,6 +157,8 @@ def run_benchmark(model, args):
         train_accs = []
         train_losses = []
         for batch_id, data in enumerate(train_reader()):
+            if iters == args.iterations:
+                break
             if iters == args.skip_batch_num:
                 start_time = time.time()
                 num_samples = 0

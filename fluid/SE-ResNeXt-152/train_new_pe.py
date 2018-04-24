@@ -70,6 +70,11 @@ def parse_args():
         default=True,
         help='It is valid only when parallel_mode is parallel_do.')
     parser.add_argument(
+        '--use_nccl_allreduce',
+        type=distutils.util.strtobool,
+        default=True,
+        help='It is valid only when parallel_mode is parallel_do.')
+    parser.add_argument(
         '--use_feeder',
         type=distutils.util.strtobool,
         default=False,
@@ -361,7 +366,10 @@ def train_parallel_exe(args):
     exe.run(fluid.default_startup_program())
 
     exe = fluid.ParallelExecutor(
-        loss_name=avg_cost.name, use_cuda=True, allow_op_delay=True)
+        loss_name=avg_cost.name,
+        use_cuda=True,
+        allow_op_delay=True,
+        use_nccl_allreduce=True if args.use_nccl_allreduce else False)
 
     time_record = []
 

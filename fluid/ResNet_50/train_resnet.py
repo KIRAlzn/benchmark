@@ -30,7 +30,8 @@ fluid.default_startup_program().random_seed = 111
 def parse_args():
     parser = argparse.ArgumentParser('ResNet-50 parallel profile.')
     parser.add_argument('--batch_size', type=int, default=12, help='batch size')
-    parser.add_argument('--batch_size_per_gpu', type=int, default=12, help='')
+    parser.add_argument(
+        '--batch_size_per_trainer', type=int, default=12, help='')
     parser.add_argument(
         '--use_mem_opt',
         type=distutils.util.strtobool,
@@ -47,7 +48,9 @@ def parse_args():
     parser.add_argument('--skip_first_steps', type=int, default=30, help='')
     parser.add_argument('--warmup', type=int, default=20, help='')
     parser.add_argument(
-        '--fix_data_in_gpu',
+        '--use_gpu', type=distutils.util.strtobool, default=True, help='')
+    parser.add_argument(
+        '--fix_data_in_card',
         type=distutils.util.strtobool,
         default=True,
         help='')
@@ -138,7 +141,7 @@ def train_parallel_exe(args):
             thread_num=4,
             pass_num=args.pass_num)
         data_file = fluid.layers.io.batch(
-            data_file, batch_size=args.batch_size_per_gpu)
+            data_file, batch_size=args.batch_size_per_trainer)
         data_file = fluid.layers.io.double_buffer(data_file)
         image, label = fluid.layers.io.read_file(data_file)
     else:
@@ -149,7 +152,7 @@ def train_parallel_exe(args):
     prediction, avg_cost = net_conf(image, label, class_dim)
     add_optimizer(args, avg_cost)
 
-    place = fluid.CUDAPlace(0)
+    place = fluid.CUDAPlace(0) if args.use_gpu else fluid.CPUPlace()
     exe = fluid.Executor(place)
     exe.run(fluid.default_startup_program())
 
@@ -160,18 +163,18 @@ def train_parallel_exe(args):
 
     exe = fluid.ParallelExecutor(
         loss_name=avg_cost.name,
-        use_cuda=True,
+        use_cuda=True if args.use_gpu else False,
         build_strategy=build_strategy,
         exec_strategy=exec_strategy)
 
     feeder = fluid.DataFeeder(place=place, feed_list=[image, label])
     train_reader = feeder.decorate_reader(
         paddle.batch(
-            train(), batch_size=args.batch_size_per_gpu),
+            train(), batch_size=args.batch_size_per_trainer),
         multi_devices=True)
 
     train_reader_iter = train_reader()
-    if args.fix_data_in_gpu:
+    if args.fix_data_in_card:
         data = train_reader_iter.next()
         feed_data = data
 
@@ -179,7 +182,7 @@ def train_parallel_exe(args):
     for batch_id in xrange(args.warmup):
         exe.run([],
                 feed=feed_data
-                if args.fix_data_in_gpu else train_reader_iter.next())
+                if args.fix_data_in_card else train_reader_iter.next())
 
     time_record = []
     train_start = time.time()
@@ -192,7 +195,7 @@ def train_parallel_exe(args):
                     exe.run([])
                 else:
                     exe.run([],
-                            feed=feed_data if args.fix_data_in_gpu else
+                            feed=feed_data if args.fix_data_in_card else
                             train_reader_iter.next())
             continue
 
@@ -204,7 +207,7 @@ def train_parallel_exe(args):
                 [avg_cost.name]
                 if (batch_id + 1) % args.display_step == 0 else [],
                 feed=feed_data
-                if args.fix_data_in_gpu else train_reader_iter.next())
+                if args.fix_data_in_card else train_reader_iter.next())
 
         img_count += args.batch_size
 
@@ -237,11 +240,15 @@ def train_parallel_exe(args):
 if __name__ == '__main__':
     args = parse_args()
 
-    cards = os.getenv("CUDA_VISIBLE_DEVICES") or ""
-    cards_num = len(cards.split(","))
-    args.batch_size = args.batch_size_per_gpu * cards_num
+    if args.use_gpu:
+        cards = os.getenv("CUDA_VISIBLE_DEVICES") or ""
+        trainer_num = len(cards.split(","))
+    else:
+        trainer_num = int(os.getenv("CPU_NUM"))
+
+    args.batch_size = args.batch_size_per_trainer * trainer_num
 
     print_arguments(args)
-    print("cards_num=" + str(cards_num))
+    print("trainer_num=" + str(trainer_num))
 
     train_parallel_exe(args)

@@ -115,15 +115,7 @@ def net_conf(image, label, class_dim):
     return out, avg_cost
 
 
-def add_optimizer(args, avg_cost):
-    optimizer = fluid.optimizer.Momentum(learning_rate=0.01, momentum=0.9)
-    optimizer.minimize(avg_cost)
-
-    if args.use_mem_opt:
-        fluid.memory_optimize(fluid.default_main_program())
-
-
-def train_parallel_exe(args):
+def get_image_label(args):
     class_dim = 102
     image_shape = [3, 224, 224]
 
@@ -151,16 +143,58 @@ def train_parallel_exe(args):
             name='image', shape=image_shape, dtype='float32')
         label = fluid.layers.data(name='label', shape=[1], dtype='int64')
 
+    return image, label
+
+
+def get_timeline(args, train_exe, feed_data, train_reader_iter):
+    with profiler.profiler('All', 'total', '/tmp/profile_parallel_exe') as prof:
+        if args.use_recordio:
+            train_exe.run(fetch_list=[])
+        else:
+            train_exe.run(fetch_list=[],
+                          feed=feed_data if args.fix_data_in_card else
+                          train_reader_iter.next())
+
+
+def training_for_one_batch(args, train_exe, avg_cost, batch_id, feed_data,
+                           train_reader_iter):
+    if args.use_recordio:
+        cost_val = train_exe.run(fetch_list=[avg_cost.name]
+                                 if (batch_id + 1) % args.display_step == 0 else
+                                 [])
+    else:
+        cost_val = train_exe.run(
+            fetch_list=[avg_cost.name]
+            if (batch_id + 1) % args.display_step == 0 else [],
+            feed=feed_data
+            if args.fix_data_in_card else train_reader_iter.next())
+    return cost_val
+
+
+def train_parallel_exe(args):
+    class_dim = 102
+    image_shape = [3, 224, 224]
+
+    # Define Program
+    image, label = get_image_label(args)
     prediction, avg_cost = net_conf(image, label, class_dim)
 
     test_program = fluid.default_main_program().clone(for_test=True)
 
-    add_optimizer(args, avg_cost)
+    optimizer = fluid.optimizer.Momentum(learning_rate=0.01, momentum=0.9)
+    optimizer.minimize(avg_cost)
 
+    # Optimize Memory
+    if args.use_mem_opt:
+        fluid.memory_optimize(fluid.default_main_program())
+        fluid.memory_optimize(test_program)
+
+    # Init Parameters
     place = fluid.CUDAPlace(0) if args.use_gpu else fluid.CPUPlace()
     exe = fluid.Executor(place)
     exe.run(fluid.default_startup_program())
 
+    # Create train_exe and test_exe
     exec_strategy = fluid.ExecutionStrategy()
     exec_strategy.allow_op_delay = True
     build_strategy = fluid.BuildStrategy()
@@ -179,6 +213,7 @@ def train_parallel_exe(args):
         share_vars_from=train_exe,
         build_strategy=build_strategy)
 
+    # Prepare Data
     feeder = fluid.DataFeeder(place=place, feed_list=[image, label])
     train_reader = feeder.decorate_reader(
         paddle.batch(
@@ -195,37 +230,21 @@ def train_parallel_exe(args):
         data = train_reader_iter.next()
         feed_data = data
 
-    # warm up
+    # Warm up
     for batch_id in xrange(args.warmup):
         train_exe.run(fetch_list=[],
                       feed=feed_data
                       if args.fix_data_in_card else train_reader_iter.next())
 
-    time_record = []
-    train_start = time.time()
-    img_count = 0
+    # Training and testing
+    train_start, time_record, img_count = time.time(), [], 0
     for batch_id in xrange(args.number_iteration):
         if args.do_profile and batch_id >= 5 and batch_id < 8:
-            with profiler.profiler('All', 'total',
-                                   '/tmp/profile_parallel_exe') as prof:
-                if args.use_recordio:
-                    train_exe.run(fetch_list=[])
-                else:
-                    train_exe.run(fetch_list=[],
-                                  feed=feed_data if args.fix_data_in_card else
-                                  train_reader_iter.next())
+            get_timeline(args, train_exe, feed_data, train_reader_iter)
             continue
 
-        if args.use_recordio:
-            cost_val = train_exe.run(fetch_list=[avg_cost.name]
-                                     if (batch_id + 1) % args.display_step == 0
-                                     else [])
-        else:
-            cost_val = train_exe.run(
-                fetch_list=[avg_cost.name]
-                if (batch_id + 1) % args.display_step == 0 else [],
-                feed=feed_data
-                if args.fix_data_in_card else train_reader_iter.next())
+        cost_val = training_for_one_batch(args, train_exe, avg_cost, batch_id,
+                                          feed_data, train_reader_iter)
 
         img_count += args.batch_size
 

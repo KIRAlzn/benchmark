@@ -69,6 +69,8 @@ def parse_args():
         type=distutils.util.strtobool,
         default=False,
         help='')
+    parser.add_argument(
+        '--with_test', type=distutils.util.strtobool, default=False, help='')
 
     args = parser.parse_args()
     return args
@@ -150,6 +152,9 @@ def train_parallel_exe(args):
         label = fluid.layers.data(name='label', shape=[1], dtype='int64')
 
     prediction, avg_cost = net_conf(image, label, class_dim)
+
+    test_program = fluid.default_main_program().clone(for_test=True)
+
     add_optimizer(args, avg_cost)
 
     place = fluid.CUDAPlace(0) if args.use_gpu else fluid.CPUPlace()
@@ -161,14 +166,26 @@ def train_parallel_exe(args):
     build_strategy = fluid.BuildStrategy()
     build_strategy.reduce_strategy = fluid.BuildStrategy.ReduceStrategy.Reduce if args.balance_parameter_opt_between_cards else fluid.BuildStrategy.ReduceStrategy.AllReduce
 
-    exe = fluid.ParallelExecutor(
+    train_exe = fluid.ParallelExecutor(
         loss_name=avg_cost.name,
+        main_program=fluid.default_main_program(),
         use_cuda=True if args.use_gpu else False,
         build_strategy=build_strategy,
         exec_strategy=exec_strategy)
 
+    test_exe = fluid.ParallelExecutor(
+        use_cuda=True if args.use_gpu else False,
+        main_program=test_program,
+        share_vars_from=train_exe,
+        build_strategy=build_strategy)
+
     feeder = fluid.DataFeeder(place=place, feed_list=[image, label])
     train_reader = feeder.decorate_reader(
+        paddle.batch(
+            train(), batch_size=args.batch_size_per_trainer),
+        multi_devices=True)
+
+    test_reader = feeder.decorate_reader(
         paddle.batch(
             train(), batch_size=args.batch_size_per_trainer),
         multi_devices=True)
@@ -180,9 +197,9 @@ def train_parallel_exe(args):
 
     # warm up
     for batch_id in xrange(args.warmup):
-        exe.run([],
-                feed=feed_data
-                if args.fix_data_in_card else train_reader_iter.next())
+        train_exe.run(fetch_list=[],
+                      feed=feed_data
+                      if args.fix_data_in_card else train_reader_iter.next())
 
     time_record = []
     train_start = time.time()
@@ -192,19 +209,20 @@ def train_parallel_exe(args):
             with profiler.profiler('All', 'total',
                                    '/tmp/profile_parallel_exe') as prof:
                 if args.use_recordio:
-                    exe.run([])
+                    train_exe.run(fetch_list=[])
                 else:
-                    exe.run([],
-                            feed=feed_data if args.fix_data_in_card else
-                            train_reader_iter.next())
+                    train_exe.run(fetch_list=[],
+                                  feed=feed_data if args.fix_data_in_card else
+                                  train_reader_iter.next())
             continue
 
         if args.use_recordio:
-            cost_val = exe.run([avg_cost.name] if (batch_id + 1) %
-                               args.display_step == 0 else [])
+            cost_val = train_exe.run(fetch_list=[avg_cost.name]
+                                     if (batch_id + 1) % args.display_step == 0
+                                     else [])
         else:
-            cost_val = exe.run(
-                [avg_cost.name]
+            cost_val = train_exe.run(
+                fetch_list=[avg_cost.name]
                 if (batch_id + 1) % args.display_step == 0 else [],
                 feed=feed_data
                 if args.fix_data_in_card else train_reader_iter.next())
@@ -219,6 +237,15 @@ def train_parallel_exe(args):
             print("iter=%d, cost=%s, elapse=%f, img/sec=%f" %
                   ((batch_id + 1), np.array(cost_val[0]), step_time,
                    img_count / step_time))
+
+            if args.with_test:
+                test_start = time.time()
+                test_loss, = test_exe.run([avg_cost.name], feed=feed_data)
+                test_end = time.time()
+                step_time = test_end - test_start
+                print("iter=%d, test_cost=%s, elapse=%f, img/sec=%f" %
+                      ((batch_id + 1), np.array(cost_val[0]), step_time,
+                       args.batch_size / step_time))
 
             img_count = 0
             train_start = time.time()

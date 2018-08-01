@@ -71,6 +71,8 @@ def parse_args():
         help='')
     parser.add_argument(
         '--with_test', type=distutils.util.strtobool, default=False, help='')
+    parser.add_argument(
+        '--op_fuse', type=distutils.util.strtobool, default=False, help='')
 
     args = parser.parse_args()
     return args
@@ -181,7 +183,11 @@ def train_parallel_exe(args):
 
     test_program = fluid.default_main_program().clone(for_test=True)
 
-    optimizer = fluid.optimizer.Momentum(learning_rate=0.01, momentum=0.9)
+    optimizer = fluid.optimizer.Momentum(
+        learning_rate=0.01,
+        momentum=0.9,
+        regularization=fluid.regularizer.L2Decay(1e-6))
+
     optimizer.minimize(avg_cost)
 
     # Optimize Memory
@@ -198,7 +204,11 @@ def train_parallel_exe(args):
     exec_strategy = fluid.ExecutionStrategy()
     exec_strategy.allow_op_delay = True
     build_strategy = fluid.BuildStrategy()
-    build_strategy.reduce_strategy = fluid.BuildStrategy.ReduceStrategy.Reduce if args.balance_parameter_opt_between_cards else fluid.BuildStrategy.ReduceStrategy.AllReduce
+    build_strategy.reduce_strategy = \
+            fluid.BuildStrategy.ReduceStrategy.Reduce \
+            if args.balance_parameter_opt_between_cards \
+            else fluid.BuildStrategy.ReduceStrategy.AllReduce
+    build_strategy.op_fuse = True if args.op_fuse else False
 
     train_exe = fluid.ParallelExecutor(
         loss_name=avg_cost.name,

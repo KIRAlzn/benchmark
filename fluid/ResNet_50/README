@@ -2,10 +2,10 @@
 
 ### not fuse op
 ```
-python train_resnet.py --display_step=1 --warmup=0 --use_gpu=True --number_iteration=20 --skip_first_steps=5 --batch_size_per_trainer=64 --with_test=False --op_fuse=False
+python train_resnet.py --use_gpu=True  --batch_size_per_trainer=64  --use_py_reader=True --pass_num=500 --fuse_adjacent_ops=False
 ```
 
 ### fuse op
 ```
-python train_resnet.py --display_step=1 --warmup=0 --use_gpu=True --number_iteration=20 --skip_first_steps=5 --batch_size_per_trainer=64 --with_test=False --op_fuse=True
+python train_resnet.py --use_gpu=True  --batch_size_per_trainer=64  --use_py_reader=True --pass_num=500 --fuse_adjacent_ops=True
 ```

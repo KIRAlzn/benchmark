@@ -1,0 +1,6 @@
+[submodule "Paddle"]
+	path = Paddle
+	url = https://github.com/PaddlePaddle/Paddle
+[submodule "FuseAdjacentOpPaddle"]
+	path = FuseAdjacentOpPaddle
+	url = https://github.com/chengduoZH/Paddle/

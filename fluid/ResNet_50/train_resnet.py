@@ -73,7 +73,7 @@ def print_arguments():
         print('%s=%s' % (arg, value))
 
 
-def make_all_py_reader_inputs(input_fields, is_test=False):
+def make_all_py_reader_inputs(is_test=False):
     print 'feed ', input_fields
     reader = fluid.layers.py_reader(
         capacity=20,
@@ -88,11 +88,10 @@ def make_all_py_reader_inputs(input_fields, is_test=False):
     return fluid.layers.read_file(reader), reader
 
 
-def get_image_label(input_fields, is_test=False):
+def get_image_label(is_test=False):
     reader = None
     if args.use_py_reader:
-        all_inputs, reader = make_all_py_reader_inputs(
-            input_fields, is_test=is_test)
+        all_inputs, reader = make_all_py_reader_inputs(is_test=is_test)
         image, label = all_inputs
     else:
         image = fluid.layers.data(
@@ -157,7 +156,6 @@ def run_use_feed(reader, executor, fetch_list, display_metric, feed_list):
 
     if len(batch_time) > args.skip_first_steps:
         batch_time[0:args.skip_first_steps] = []
-        print("drop the first %d batch time" % (args.skip_first_steps))
     else:
         print("the number of step is %d, "
               "but the skip_first_steps is %d. "
@@ -175,8 +173,7 @@ def test_parallel_exe(trainer):
         test_startup_prog.random_seed = 1
     with fluid.program_guard(test_prog, test_startup_prog):
         with fluid.unique_name.guard():
-            test_image, test_label, test_reader = get_image_label(
-                input_fields, is_test=True)
+            test_image, test_label, test_reader = get_image_label(is_test=True)
             test_prediction, test_avg_cost = net_conf(test_image, test_label,
                                                       class_dim)
             batch_size_tensor = fluid.layers.create_tensor(dtype='int64')
@@ -192,6 +189,16 @@ def test_parallel_exe(trainer):
 
     if args.use_mem_opt:
         fluid.memory_optimize(test_prog)
+
+    feed_list = None
+    if args.use_py_reader:
+        # Init Reader
+        test_reader.decorate_paddle_reader(
+            paddle.batch(
+                flowers.test(), batch_size=args.batch_size_per_trainer))
+    else:
+        test_reader = paddle.batch(flowers.test(), batch_size=args.batch_size)
+        feed_list = [test_image, test_label]
 
     # Init ParallelExecutor
     # Create train_exe 
@@ -212,10 +219,6 @@ def test_parallel_exe(trainer):
         build_strategy=build_strategy,
         exec_strategy=exec_strategy)
 
-    test_reader.decorate_paddle_reader(
-        paddle.batch(
-            flowers.test(), batch_size=args.batch_size_per_trainer))
-
     def test(pass_id, tester=tester, test_reader=test_reader):
         batch_accs = []
         batch_size = []
@@ -233,14 +236,17 @@ def test_parallel_exe(trainer):
                    batch_size_var.sum() / time_consum))
 
         if args.use_py_reader:
-            run_use_py_reader(
-                test_reader,
-                tester,
-                fetch_list=[batch_acc.name, batch_size_tensor.name],
-                display_metric=partial(
-                    test_display_metric, pass_id=pass_id))
+            test_one_pass = run_use_py_reader
         else:
-            raise "No implemented"
+            test_one_pass = run_use_feed
+
+        test_one_pass(
+            test_reader,
+            tester,
+            fetch_list=[batch_acc.name, batch_size_tensor.name],
+            display_metric=partial(
+                test_display_metric, pass_id=pass_id),
+            feed_list=feed_list)
 
         print("test accuracy:%f" %
               (np.dot(batch_accs, batch_size) / np.sum(batch_size)))
@@ -258,7 +264,7 @@ def train_parallel_exe():
     with fluid.program_guard(train_prog, train_startup_prog):
         with fluid.unique_name.guard():
             train_image, train_label, train_reader = get_image_label(
-                input_fields, is_test=False)
+                is_test=False)
             train_prediction, avg_cost = net_conf(train_image, train_label,
                                                   class_dim)
             optimizer = fluid.optimizer.Momentum(

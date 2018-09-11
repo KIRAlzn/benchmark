@@ -6,6 +6,7 @@ import paddle
 import paddle.fluid as fluid
 from se_resnext_v2 import SE_ResNeXt
 import reader
+from config import *
 
 import argparse
 import functools
@@ -18,10 +19,13 @@ parser = argparse.ArgumentParser(description=__doc__)
 add_arg = functools.partial(add_arguments, argparser=parser)
 # yapf: disable
 add_arg('batch_size',   int,  256, "Minibatch size.")
+add_arg('batch_size_per_trainer',   int,  32, "Minibatch size.")
 add_arg('run_pass',   int,  10, "run number passes.")
 add_arg('num_layers',   int,  50,  "How many layers for SE-ResNeXt model.")
 add_arg('with_mem_opt', bool, False, "Whether to use memory optimization or not.")
-add_arg('parallel_exe', bool, True, "Whether to use ParallelExecutor to train or not.")
+add_arg('use_py_reader', bool, True, "")
+add_arg('use_gpu', bool, True, "")
+# add_arg('parallel_exe', bool, True, "Whether to use ParallelExecutor to train or not.")
 
 def cosine_decay(learning_rate, step_each_epoch, epochs = 120):
     """Applies cosine decay to the learning rate.
@@ -35,141 +39,33 @@ def cosine_decay(learning_rate, step_each_epoch, epochs = 120):
     return decayed_lr
 
 
-def train_paralle_do(args,
-                     learning_rate,
-                     batch_size,
-                     num_passes,
-                     init_model=None,
-                     model_save_dir='model',
-                     parallel=True,
-                     use_nccl=True,
-                     lr_strategy=None,
-                     layers=50):
-    class_dim = 1000
-    image_shape = [3, 224, 224]
+def make_all_py_reader_inputs(is_test=False):
+    print 'feed ', input_fields
+    reader = fluid.layers.py_reader(
+        capacity=20,
+        name="test_reader" if is_test else "train_reader",
+        shapes=[input_descs[input_field][0] for input_field in input_fields],
+        dtypes=[input_descs[input_field][1] for input_field in input_fields],
+        lod_levels=[
+            input_descs[input_field][2]
+            if len(input_descs[input_field]) == 3 else 0
+            for input_field in input_fields
+        ])
+    return fluid.layers.read_file(reader), reader
 
-    image = fluid.layers.data(name='image', shape=image_shape, dtype='float32')
-    label = fluid.layers.data(name='label', shape=[1], dtype='int64')
 
-    if parallel:
-        places = fluid.layers.get_places()
-        pd = fluid.layers.ParallelDo(places, use_nccl=use_nccl)
-
-        with pd.do():
-            image_ = pd.read_input(image)
-            label_ = pd.read_input(label)
-            out = SE_ResNeXt(input=image_, class_dim=class_dim, layers=layers)
-            cost = fluid.layers.cross_entropy(input=out, label=label_)
-            avg_cost = fluid.layers.mean(x=cost)
-            acc_top1 = fluid.layers.accuracy(input=out, label=label_, k=1)
-            acc_top5 = fluid.layers.accuracy(input=out, label=label_, k=5)
-            pd.write_output(avg_cost)
-            pd.write_output(acc_top1)
-            pd.write_output(acc_top5)
-
-        avg_cost, acc_top1, acc_top5 = pd()
-        avg_cost = fluid.layers.mean(x=avg_cost)
-        acc_top1 = fluid.layers.mean(x=acc_top1)
-        acc_top5 = fluid.layers.mean(x=acc_top5)
+def get_image_label(is_test=False):
+    reader = None
+    if args.use_py_reader:
+        all_inputs, reader = make_all_py_reader_inputs(is_test=is_test)
+        image, label = all_inputs
     else:
-        out = SE_ResNeXt(input=image, class_dim=class_dim, layers=layers)
-        cost = fluid.layers.cross_entropy(input=out, label=label)
-        avg_cost = fluid.layers.mean(x=cost)
-        acc_top1 = fluid.layers.accuracy(input=out, label=label, k=1)
-        acc_top5 = fluid.layers.accuracy(input=out, label=label, k=5)
+        image = fluid.layers.data(
+            name='image', shape=image_shape, dtype='float32')
+        label = fluid.layers.data(name='label', shape=[1], dtype='int64')
 
-    inference_program = fluid.default_main_program().clone(for_test=True)
-    if lr_strategy is None:
-        optimizer = fluid.optimizer.Momentum(
-            learning_rate=learning_rate,
-            momentum=0.9,
-            regularization=fluid.regularizer.L2Decay(1e-4))
-    else:
-        bd = lr_strategy["bd"]
-        lr = lr_strategy["lr"]
-        optimizer = fluid.optimizer.Momentum(
-            learning_rate=fluid.layers.piecewise_decay(
-                boundaries=bd, values=lr),
-            momentum=0.9,
-            regularization=fluid.regularizer.L2Decay(1e-4))
+    return image, label, reader
 
-
-    opts = optimizer.minimize(avg_cost)
-    if args.with_mem_opt:
-        fluid.memory_optimize(fluid.default_main_program())
-
-    place = fluid.CUDAPlace(0)
-    exe = fluid.Executor(place)
-    exe.run(fluid.default_startup_program())
-
-    if init_model is not None:
-        fluid.io.load_persistables(exe, init_model)
-
-    train_reader = paddle.batch(reader.train(), batch_size=batch_size)
-    test_reader = paddle.batch(reader.test(), batch_size=batch_size)
-    feeder = fluid.DataFeeder(place=place, feed_list=[image, label])
-
-    for pass_id in range(num_passes):
-        if pass_id == args.run_pass:
-            break
-        train_info = [[], [], []]
-        test_info = [[], [], []]
-        for batch_id, data in enumerate(train_reader()):
-            t1 = time.time()
-            loss, acc1, acc5 = exe.run(
-                fluid.default_main_program(),
-                feed=feeder.feed(data),
-                fetch_list=[avg_cost, acc_top1, acc_top5])
-            t2 = time.time()
-            period = t2 - t1
-            train_info[0].append(loss[0])
-            train_info[1].append(acc1[0])
-            train_info[2].append(acc5[0])
-            if batch_id % 10 == 0:
-                print("Pass {0}, trainbatch {1}, loss {2}, \
-                       acc1 {3}, acc5 {4} time {5}"
-                                                   .format(pass_id, \
-                       batch_id, loss[0], acc1[0], acc5[0], \
-                       "%2.2f sec" % period))
-                sys.stdout.flush()
-
-        train_loss = np.array(train_info[0]).mean()
-        train_acc1 = np.array(train_info[1]).mean()
-        train_acc5 = np.array(train_info[2]).mean()
-        for data in test_reader():
-            t1 = time.time()
-            loss, acc1, acc5 = exe.run(
-                inference_program,
-                feed=feeder.feed(data),
-                fetch_list=[avg_cost, acc_top1, acc_top5])
-            t2 = time.time()
-            period = t2 - t1
-            test_info[0].append(loss[0])
-            test_info[1].append(acc1[0])
-            test_info[2].append(acc5[0])
-            if batch_id % 10 == 0:
-                print("Pass {0},testbatch {1},loss {2}, \
-                       acc1 {3},acc5 {4},time {5}"
-                                                  .format(pass_id, \
-                       batch_id, loss[0], acc1[0], acc5[0], \
-                       "%2.2f sec" % period))
-                sys.stdout.flush()
-
-        test_loss = np.array(test_info[0]).mean()
-        test_acc1 = np.array(test_info[1]).mean()
-        test_acc5 = np.array(test_info[2]).mean()
-
-        print("End pass {0}, train_loss {1}, train_acc1 {2}, train_acc5 {3}, \
-               test_loss {4}, test_acc1 {5}, test_acc5 {6}"
-                                                           .format(pass_id, \
-              train_loss, train_acc1, train_acc5, test_loss, test_acc1, \
-              test_acc5))
-        sys.stdout.flush()
-
-        model_path = os.path.join(model_save_dir, str(pass_id))
-        if not os.path.isdir(model_path):
-            os.makedirs(model_path)
-        fluid.io.save_persistables(exe, model_path)
 
 def train_parallel_exe(args,
                        learning_rate,
@@ -184,124 +80,121 @@ def train_parallel_exe(args,
     class_dim = 1000
     image_shape = [3, 224, 224]
 
-    image = fluid.layers.data(name='image', shape=image_shape, dtype='float32')
-    label = fluid.layers.data(name='label', shape=[1], dtype='int64')
-    out = SE_ResNeXt(input=image, class_dim=class_dim, layers=layers)
-    acc_top1 = fluid.layers.accuracy(input=out, label=label, k=1)
-    acc_top5 = fluid.layers.accuracy(input=out, label=label, k=5)
-    cost = fluid.layers.cross_entropy(input=out, label=label)
-    avg_cost = fluid.layers.mean(x=cost)
+    # Define training Program
+    train_prog = fluid.Program()
+    train_startup_prog = fluid.Program()
+    with fluid.program_guard(train_prog, train_startup_prog):
+        with fluid.unique_name.guard():
+            image, label, py_reader = get_image_label()
+            # image = fluid.layers.data(name='image', shape=image_shape, dtype='float32')
+            # label = fluid.layers.data(name='label', shape=[1], dtype='int64')
+            out = SE_ResNeXt(input=image, class_dim=class_dim, layers=layers)
+            acc_top1 = fluid.layers.accuracy(input=out, label=label, k=1)
+            acc_top5 = fluid.layers.accuracy(input=out, label=label, k=5)
+            cost = fluid.layers.cross_entropy(input=out, label=label)
+            avg_cost = fluid.layers.mean(x=cost)
 
-    test_program = fluid.default_main_program().clone(for_test=True)
-
-    if "piecewise_decay" in lr_strategy:
-        bd = lr_strategy["piecewise_decay"]["bd"]
-        lr = lr_strategy["piecewise_decay"]["lr"]
-        optimizer = fluid.optimizer.Momentum(
-            learning_rate=fluid.layers.piecewise_decay(
-                boundaries=bd, values=lr),
-            momentum=0.9,
-            regularization=fluid.regularizer.L2Decay(1e-4))
-    elif "cosine_decay" in lr_strategy:
-        print('cosine_decay')
-        step_each_epoch = lr_strategy["cosine_decay"]["step_each_epoch"]
-        epochs = lr_strategy["cosine_decay"]["epochs"]
-        optimizer = fluid.optimizer.Momentum(
-            learning_rate=cosine_decay(learning_rate=learning_rate,
-                step_each_epoch=step_each_epoch, epochs=epochs),
-            momentum=0.9,
-            regularization=fluid.regularizer.L2Decay(1e-4))
-    else:
-        optimizer = fluid.optimizer.Momentum(
-            learning_rate=learning_rate,
-            momentum=0.9,
-            regularization=fluid.regularizer.L2Decay(1e-4))
-    opts = optimizer.minimize(avg_cost)
+            if "piecewise_decay" in lr_strategy:
+                bd = lr_strategy["piecewise_decay"]["bd"]
+                lr = lr_strategy["piecewise_decay"]["lr"]
+                optimizer = fluid.optimizer.Momentum(
+                    learning_rate=fluid.layers.piecewise_decay(
+                        boundaries=bd, values=lr),
+                    momentum=0.9,
+                    regularization=fluid.regularizer.L2Decay(1e-4))
+            elif "cosine_decay" in lr_strategy:
+                print('cosine_decay')
+                step_each_epoch = lr_strategy["cosine_decay"]["step_each_epoch"]
+                epochs = lr_strategy["cosine_decay"]["epochs"]
+                optimizer = fluid.optimizer.Momentum(
+                    learning_rate=cosine_decay(learning_rate=learning_rate,
+                        step_each_epoch=step_each_epoch, epochs=epochs),
+                    momentum=0.9,
+                    regularization=fluid.regularizer.L2Decay(1e-4))
+            else:
+                optimizer = fluid.optimizer.Momentum(
+                    learning_rate=learning_rate,
+                    momentum=0.9,
+                    regularization=fluid.regularizer.L2Decay(1e-4))
+            opts = optimizer.minimize(avg_cost)
 
     if args.with_mem_opt:
-        fluid.memory_optimize(fluid.default_main_program())
+        fluid.memory_optimize(train_prog)
 
-    place = fluid.CUDAPlace(0)
-    exe = fluid.Executor(place)
-    exe.run(fluid.default_startup_program())
+    # Init parameter
+    place = fluid.CUDAPlace(0) if args.use_gpu else fluid.CPUPlace()
+    fluid.Executor(place).run(train_startup_prog)
 
     if init_model is not None:
         fluid.io.load_persistables(exe, init_model)
 
-    train_reader = paddle.batch(reader.train(), batch_size=batch_size)
-    test_reader = paddle.batch(reader.test(), batch_size=32)
-    feeder = fluid.DataFeeder(place=place, feed_list=[image, label])
+    feed_list = None
+    if args.use_py_reader:
+        # Init Reader
+        # train_reader.decorate_paddle_reader(
+        # paddle.v2.reader.shuffle(
+        # paddle.batch(mnist.train(), 512), buf_size=8192))
+        train_reader.decorate_paddle_reader(
+            paddle.batch(
+                reader.train(), batch_size=args.batch_size_per_trainer))
+    else:
+        train_reader = paddle.batch(reader.train(), batch_size=batch_size)
+        train_reader = paddle.batch(flowers.train(), batch_size=args.batch_size)
+        feeder = fluid.DataFeeder(place=place, feed_list=[image, label])
+        feed_list = [train_image, train_label]
 
-    train_exe = fluid.ParallelExecutor(use_cuda=True, loss_name=avg_cost.name)
+    # Init ParallelExecutor
+    exec_strategy = fluid.ExecutionStrategy()
+    build_strategy = fluid.BuildStrategy()
+    build_strategy.fuse_adjacent_ops = True if args.fuse_adjacent_ops else False
+
+    # Create train_exe 
+    train_exe = fluid.ParallelExecutor(
+        use_cuda=True if args.use_gpu else False,
+        loss_name=avg_cost.name,
+        main_program=train_prog,
+        build_strategy=build_strategy,
+        exec_strategy=exec_strategy)
+
     fetch_list = [avg_cost.name, acc_top1.name, acc_top5.name]
-
-
-    def test(pass_id, train_info):
-        test_info = [[], [], []]
-        train_loss = np.array(train_info[0]).mean()
-        train_acc1 = np.array(train_info[1]).mean()
-        train_acc5 = np.array(train_info[2]).mean()
-        for batch_id, data in enumerate(test_reader()):
-            if batch_id == 1: break
-            t1 = time.time()
-            loss, acc1, acc5 = exe.run(
-                test_program,
-                feed=feeder.feed(data),
-                fetch_list=[avg_cost, acc_top1, acc_top5])
-            t2 = time.time()
-            period = t2 - t1
-            test_info[0].append(loss[0])
-            test_info[1].append(acc1[0])
-            test_info[2].append(acc5[0])
-            if batch_id % 10 == 0:
-                print("Pass {0},testbatch {1},loss {2}, \
-                       acc1 {3},acc5 {4},time {5}"
-                                                  .format(pass_id, \
-                       batch_id, loss, acc1, acc5, \
-                       "%2.2f sec" % period))
-                sys.stdout.flush()
-
-        test_loss = np.array(test_info[0]).mean()
-        test_acc1 = np.array(test_info[1]).mean()
-        test_acc5 = np.array(test_info[2]).mean()
-
-        print("End pass {0}, train_loss {1}, train_acc1 {2}, train_acc5 {3}, \
-               test_loss {4}, test_acc1 {5}, test_acc5 {6}"
-                                                           .format(pass_id, \
-              train_loss, train_acc1, train_acc5, test_loss, test_acc1, \
-              test_acc5))
-        sys.stdout.flush()
-
 
     for pass_id in range(num_passes):
         if pass_id == args.run_pass:
             break
-        train_info = [[], [], []]
-        for batch_id, data in enumerate(train_reader()):
-            t1 = time.time()
-            loss, acc1, acc5 = train_exe.run(
-                fetch_list,
-                feed=feeder.feed(data))
-            t2 = time.time()
-            period = t2 - t1
-            loss = np.mean(np.array(loss))
-            acc1 = np.mean(np.array(acc1))
-            acc5 = np.mean(np.array(acc5))
+        batch_time = []
+
+        py_reader.start()
+        time.sleep(1)
+        batch_id = 0
+        while True:
+            # print py_reader.queue.size()
+            beg = time.time()
+            try:
+                outs = train_exe.run(fetch_list=fetch_list)
+            except fluid.core.EOFException:
+                # The current pass is over.
+                print("The current pass is over.")
+                py_reader.reset()
+                break
+
+            batch_time.append(time.time() - beg)
+            batch_id += 1
+
+            loss = np.mean(np.array(outs[0]))
+            acc1 = np.mean(np.array(outs[1]))
+            acc5 = np.mean(np.array(outs[2]))
             train_info[0].append(loss)
             train_info[1].append(acc1)
             train_info[2].append(acc5)
-            if batch_id % 10 == 0:
-                print("Pass {0}, trainbatch {1}, loss {2}, \
+            print("Pass {0}, trainbatch {1}, loss {2}, \
                        acc1 {3}, acc5 {4} time {5}"
                                                    .format(pass_id, \
                        batch_id, loss, acc1, acc5, \
                        "%2.2f sec" % period))
-                sys.stdout.flush()
-        test(pass_id, train_info)
-        model_path = os.path.join(model_save_dir, str(pass_id))
-        if not os.path.isdir(model_path):
-            os.makedirs(model_path)
-        fluid.io.save_persistables(exe, model_path)
+
+        if batch_id  == args.skip_first_steps:
+            batch_time[0:args.skip_first_steps] = []
+        print("Average time cost: %f" % (np.mean(batch_time)))
 
 
 if __name__ == '__main__':
@@ -336,7 +229,7 @@ if __name__ == '__main__':
     use_nccl = True
     # layers: 50, 152
     layers = args.num_layers
-    method = train_parallel_exe if args.parallel_exe else train_parallel_do
+    method = train_parallel_exe # if args.parallel_exe else train_parallel_do
     method(args,
            learning_rate=0.1,
            batch_size=batch_size,

@@ -11,8 +11,8 @@ random.seed(0)
 
 DATA_DIM = 224
 
-THREAD = 8
-BUF_SIZE = 1024000
+THREAD = 4
+BUF_SIZE = 10240
 
 TRAIN_LIST = 'data/train_image1000_shuf.txt'
 TEST_LIST = 'data/val_image1000.txt'

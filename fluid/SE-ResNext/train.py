@@ -26,6 +26,7 @@ add_arg('with_mem_opt', bool, False, "Whether to use memory optimization or not.
 add_arg('use_py_reader', bool, True, "")
 add_arg('use_gpu', bool, True, "")
 # add_arg('parallel_exe', bool, True, "Whether to use ParallelExecutor to train or not.")
+add_arg('fuse_adjacent_ops', bool, False, "Whether to fuse the adjacent operators.")
 
 def cosine_decay(learning_rate, step_each_epoch, epochs = 120):
     """Applies cosine decay to the learning rate.

@@ -54,10 +54,11 @@ def parse_args():
     parser.add_argument(
         '--with_test', type=distutils.util.strtobool, default=False, help='')
     parser.add_argument(
-        '--fuse_adjacent_ops',
+        '--fuse_elewise_add_act_ops',
         type=distutils.util.strtobool,
         default=False,
         help='')
+    parser.add_argument("--do_profile", action='store_true', help="")
     parser.add_argument(
         '--fix_seed', type=distutils.util.strtobool, default=True, help='')
     args = parser.parse_args()
@@ -121,7 +122,12 @@ def run_use_py_reader(py_reader,
         # print py_reader.queue.size()
         beg = time.time()
         try:
-            outs = executor.run(fetch_list=fetch_list)
+            if args.do_profile and batch_id >= 5 and batch_id < 8:
+                with profiler.profiler('All', 'total',
+                                       '/tmp/profile_parallel_exe') as prof:
+                    outs = executor.run(fetch_list=fetch_list)
+            else:
+                outs = executor.run(fetch_list=fetch_list)
         except fluid.core.EOFException:
             # The current pass is over.
             print("The current pass is over.")
@@ -150,7 +156,13 @@ def run_use_feed(reader, executor, fetch_list, display_metric, feed_list):
     batch_time = []
     for batch_id, data in enumerate(reader()):
         beg = time.time()
-        outs = executor.run(fetch_list, feed=feeder.feed(data))
+        if args.do_profile and batch_id >= 5 and batch_id < 8:
+            with profiler.profiler('All', 'total',
+                                   '/tmp/profile_parallel_exe') as prof:
+                #outs = executor.run(fetch_list=fetch_list)
+                outs = executor.run(fetch_list, feed=feeder.feed(data))
+        else:
+            outs = executor.run(fetch_list, feed=feeder.feed(data))
         batch_time.append(time.time() - beg)
         display_metric(outs, batch_id, time.time() - beg)
 
@@ -201,7 +213,7 @@ def test_parallel_exe(trainer):
         feed_list = [test_image, test_label]
 
     # Init ParallelExecutor
-    # Create train_exe 
+    # Create train_exe
     exec_strategy = fluid.ExecutionStrategy()
     # exec_strategy.allow_op_delay = False
     build_strategy = fluid.BuildStrategy()
@@ -209,8 +221,8 @@ def test_parallel_exe(trainer):
             fluid.BuildStrategy.ReduceStrategy.Reduce \
             if args.reduce_mode \
             else fluid.BuildStrategy.ReduceStrategy.AllReduce
-    if args.fuse_adjacent_ops:
-        build_strategy.fuse_adjacent_ops = True
+    if args.fuse_elewise_add_act_ops:
+        build_strategy.fuse_elewise_add_act_ops = True
 
     tester = fluid.ParallelExecutor(
         use_cuda=True if args.use_gpu else False,
@@ -294,9 +306,9 @@ def train_parallel_exe():
             fluid.BuildStrategy.ReduceStrategy.Reduce \
             if args.reduce_mode \
             else fluid.BuildStrategy.ReduceStrategy.AllReduce
-    build_strategy.fuse_adjacent_ops = True if args.fuse_adjacent_ops else False
+    build_strategy.fuse_elewise_add_act_ops = True if args.fuse_elewise_add_act_ops else False
 
-    # Create train_exe 
+    # Create train_exe
     trainer = fluid.ParallelExecutor(
         use_cuda=True if args.use_gpu else False,
         loss_name=avg_cost.name,

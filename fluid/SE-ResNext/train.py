@@ -22,11 +22,14 @@ add_arg('batch_size',   int,  256, "Minibatch size.")
 add_arg('batch_size_per_trainer',   int,  32, "Minibatch size.")
 add_arg('run_pass',   int,  10, "run number passes.")
 add_arg('num_layers',   int,  50,  "How many layers for SE-ResNeXt model.")
+add_arg('skip_first_steps',   int,  5,  "")
 add_arg('with_mem_opt', bool, False, "Whether to use memory optimization or not.")
 add_arg('use_py_reader', bool, True, "")
 add_arg('use_gpu', bool, True, "")
+add_arg('fuse_elewise_add_act_ops', bool, False, "Whether to fuse the adjacent operators.")
+add_arg('do_profile', bool, False, ".")
+
 # add_arg('parallel_exe', bool, True, "Whether to use ParallelExecutor to train or not.")
-add_arg('fuse_adjacent_ops', bool, False, "Whether to fuse the adjacent operators.")
 
 def cosine_decay(learning_rate, step_each_epoch, epochs = 120):
     """Applies cosine decay to the learning rate.
@@ -135,6 +138,7 @@ def train_parallel_exe(args,
         # train_reader.decorate_paddle_reader(
         # paddle.v2.reader.shuffle(
         # paddle.batch(mnist.train(), 512), buf_size=8192))
+        train_reader = py_reader
         train_reader.decorate_paddle_reader(
             paddle.batch(
                 reader.train(), batch_size=args.batch_size_per_trainer))
@@ -147,9 +151,9 @@ def train_parallel_exe(args,
     # Init ParallelExecutor
     exec_strategy = fluid.ExecutionStrategy()
     build_strategy = fluid.BuildStrategy()
-    build_strategy.fuse_adjacent_ops = True if args.fuse_adjacent_ops else False
+    build_strategy.fuse_elewise_add_act_ops = True if args.fuse_elewise_add_act_ops else False
 
-    # Create train_exe 
+    # Create train_exe
     train_exe = fluid.ParallelExecutor(
         use_cuda=True if args.use_gpu else False,
         loss_name=avg_cost.name,
@@ -171,7 +175,12 @@ def train_parallel_exe(args,
             # print py_reader.queue.size()
             beg = time.time()
             try:
-                outs = train_exe.run(fetch_list=fetch_list)
+                if args.do_profile and batch_id >= 5 and batch_id < 8:
+                    with profiler.profiler('All', 'total',
+                                    '/tmp/profile_parallel_exe') as prof:
+                        outs = executor.run(fetch_list=fetch_list)
+                else:
+                    outs = train_exe.run(fetch_list=fetch_list)
             except fluid.core.EOFException:
                 # The current pass is over.
                 print("The current pass is over.")
@@ -184,18 +193,13 @@ def train_parallel_exe(args,
             loss = np.mean(np.array(outs[0]))
             acc1 = np.mean(np.array(outs[1]))
             acc5 = np.mean(np.array(outs[2]))
-            train_info[0].append(loss)
-            train_info[1].append(acc1)
-            train_info[2].append(acc5)
             print("Pass {0}, trainbatch {1}, loss {2}, \
-                       acc1 {3}, acc5 {4} time {5}"
+                       acc1 {3}, acc5 {4}, time {5}"
                                                    .format(pass_id, \
-                       batch_id, loss, acc1, acc5, \
-                       "%2.2f sec" % period))
+                       batch_id, loss, acc1, acc5,"%s"%(np.mean(batch_time))))
 
-        if batch_id  == args.skip_first_steps:
-            batch_time[0:args.skip_first_steps] = []
-        print("Average time cost: %f" % (np.mean(batch_time)))
+            if batch_id  == args.skip_first_steps:
+                batch_time[0:args.skip_first_steps] = []
 
 
 if __name__ == '__main__':

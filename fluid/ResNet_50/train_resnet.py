@@ -236,13 +236,12 @@ def train_parallel_exe(args):
         feed_data = data
 
     # Warm up
-    if args.warmup > 0:
-        print("----------Warm up(%d)----------" % (args.warmup))
-        for batch_id in xrange(args.warmup):
-            cost_val = train_exe.run(fetch_list=[avg_cost.name],
-                                     feed=feed_data if args.fix_data_in_card
-                                     else train_reader_iter.next())
-            print("batch_id:%d, cost %f " % (batch_id, cost_val[0]))
+    print("----------Warm up(%d)----------" % (args.warmup))
+    for batch_id in xrange(args.warmup):
+        cost_val = train_exe.run(fetch_list=[avg_cost.name],
+                                 feed=feed_data if args.fix_data_in_card else
+                                 train_reader_iter.next())
+        print("batch_id:%d, cost %f " % (batch_id, cost_val[0]))
 
     # 
     print("----------Training and testing----------")
@@ -300,11 +299,11 @@ def train_executor(args):
     image, label = get_image_label(args)
 
     if args.test_fp16:
-        with fluid.contrib.switch_dtype_block(
-                fluid.default_main_program(), exclude_set=[label.name]):
+        with fluid.contrib.switch_to_fp16(fluid.default_main_program()):
             # prediction, avg_cost = net_conf(image, label, class_dim)
             prediction = resnet.resnet_imagenet(
                 input=image, class_dim=class_dim)
+
         cost = fluid.layers.cross_entropy(
             input=fluid.layers.cast(prediction, np.float32), label=label)
     else:
@@ -330,27 +329,31 @@ def train_executor(args):
     # Prepare Data
     reader = paddle.batch(train(), batch_size=args.batch_size_per_trainer)
     feeder = fluid.DataFeeder(place=place, feed_list=[image, label])
+    if args.fix_data_in_card:
+        data = feeder.feed(reader().next())
+        feed_data = data
 
     t_consume = [0]
     # Warm up
-    if args.warmup > 0:
-        print("----------Warm up(%d)----------" % (args.warmup))
-        for batch_id, data in enumerate(reader()):
-            with _time_record_(t_consume):
-                cost_val = exe.run(fetch_list=[avg_cost.name],
-                                   feed=feeder.feed(data))
-            print("batch_id:%d, cost: %f, time: %f, img/sec=%f" %
-                  (batch_id, cost_val[0], t_consume[0],
-                   args.batch_size / t_consume[0]))
-            if batch_id > args.warmup:
-                break
+    print("----------Warm up(%d)----------" % (args.warmup))
+    for batch_id, data in enumerate(reader()):
+        if batch_id > args.warmup:
+            break
+        with _time_record_(t_consume):
+            cost_val = exe.run(fetch_list=[avg_cost.name],
+                               feed=feed_data
+                               if args.fix_data_in_card else feeder.feed(data))
+        print("batch_id:%d, cost: %f, time: %f, img/sec=%f" %
+              (batch_id, cost_val[0], t_consume[0],
+               args.batch_size / t_consume[0]))
 
     # Training and testing
     print("----------Traine----------")
     for batch_id, data in enumerate(reader()):
         with _time_record_(t_consume):
             cost_val = exe.run(fetch_list=[avg_cost.name],
-                               feed=feeder.feed(data))
+                               feed=feed_data
+                               if args.fix_data_in_card else feeder.feed(data))
         print("batch_id: %d, cost:%f, time: %f, img/sec=%f" %
               (batch_id, cost_val[0], t_consume[0],
                args.batch_size / t_consume[0]))
@@ -358,7 +361,6 @@ def train_executor(args):
 
 if __name__ == '__main__':
     args = parse_args()
-
     if args.use_gpu:
         cards = os.getenv("CUDA_VISIBLE_DEVICES") or ""
         trainer_num = len(cards.split(","))

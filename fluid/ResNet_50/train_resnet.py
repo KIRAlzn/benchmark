@@ -17,7 +17,7 @@ import time
 import argparse
 import distutils.util
 import numpy as np
-
+import contextlib
 from models import resnet
 import paddle
 import paddle.fluid as fluid
@@ -71,7 +71,13 @@ def parse_args():
         help='')
     parser.add_argument(
         '--with_test', type=distutils.util.strtobool, default=False, help='')
-
+    parser.add_argument(
+        '--test_fp16', type=distutils.util.strtobool, default=False, help='')
+    parser.add_argument(
+        '--with_parallel_executor',
+        type=distutils.util.strtobool,
+        default=False,
+        help='')
     args = parser.parse_args()
     return args
 
@@ -198,7 +204,10 @@ def train_parallel_exe(args):
     exec_strategy = fluid.ExecutionStrategy()
     exec_strategy.allow_op_delay = True
     build_strategy = fluid.BuildStrategy()
-    build_strategy.reduce_strategy = fluid.BuildStrategy.ReduceStrategy.Reduce if args.balance_parameter_opt_between_cards else fluid.BuildStrategy.ReduceStrategy.AllReduce
+    build_strategy.reduce_strategy = fluid.BuildStrategy.ReduceStrategy.Reduce \
+        if args.balance_parameter_opt_between_cards \
+        else \
+        fluid.BuildStrategy.ReduceStrategy.AllReduce
 
     train_exe = fluid.ParallelExecutor(
         loss_name=avg_cost.name,
@@ -221,23 +230,30 @@ def train_parallel_exe(args):
         multi_devices=True)
 
     train_reader_iter = train_reader()
+    feed_data = None
     if args.fix_data_in_card:
         data = train_reader_iter.next()
         feed_data = data
 
     # Warm up
-    for batch_id in xrange(args.warmup):
-        train_exe.run(fetch_list=[],
-                      feed=feed_data
-                      if args.fix_data_in_card else train_reader_iter.next())
+    if args.warmup > 0:
+        print("----------Warm up(%d)----------" % (args.warmup))
+        for batch_id in xrange(args.warmup):
+            cost_val = train_exe.run(fetch_list=[avg_cost.name],
+                                     feed=feed_data if args.fix_data_in_card
+                                     else train_reader_iter.next())
+            print("batch_id:%d, cost %f " % (batch_id, cost_val[0]))
 
-    # Training and testing
+    # 
+    print("----------Training and testing----------")
     train_start, time_record, img_count = time.time(), [], 0
     for batch_id in xrange(args.number_iteration):
+        # profile
         if args.do_profile and batch_id >= 5 and batch_id < 8:
             get_timeline(args, train_exe, feed_data, train_reader_iter)
             continue
 
+        # train or test
         cost_val = training_for_one_batch(args, train_exe, avg_cost, batch_id,
                                           feed_data, train_reader_iter)
 
@@ -247,11 +263,9 @@ def train_parallel_exe(args):
             train_stop = time.time()
             step_time = train_stop - train_start
             time_record.append(step_time)
-
             print("iter=%d, cost=%s, elapse=%f, img/sec=%f" %
                   ((batch_id + 1), np.array(cost_val[0]), step_time,
                    img_count / step_time))
-
             img_count = 0
             train_start = time.time()
 
@@ -269,6 +283,79 @@ def train_parallel_exe(args):
         np.mean(time_record), img_count / np.sum(time_record)))
 
 
+@contextlib.contextmanager
+def _time_record_(t_consume):
+    assert isinstance(t_consume, list)
+    start_time = time.time()
+    yield
+    end_time = time.time()
+    t_consume[0] = end_time - start_time
+
+
+def train_executor(args):
+    class_dim = 102
+    image_shape = [3, 224, 224]
+
+    # Define Program
+    image, label = get_image_label(args)
+
+    if args.test_fp16:
+        with fluid.contrib.switch_dtype_block(
+                fluid.default_main_program(), exclude_set=[label.name]):
+            # prediction, avg_cost = net_conf(image, label, class_dim)
+            prediction = resnet.resnet_imagenet(
+                input=image, class_dim=class_dim)
+        cost = fluid.layers.cross_entropy(
+            input=fluid.layers.cast(prediction, np.float32), label=label)
+    else:
+        prediction = resnet.resnet_imagenet(input=image, class_dim=class_dim)
+        cost = fluid.layers.cross_entropy(input=prediction, label=label)
+
+    avg_cost = fluid.layers.mean(x=cost)
+    test_program = fluid.default_main_program().clone(for_test=True)
+
+    optimizer = fluid.optimizer.Momentum(learning_rate=0.01, momentum=0.9)
+    optimizer.minimize(avg_cost)
+
+    # Optimize Memory
+    if args.use_mem_opt:
+        fluid.memory_optimize(fluid.default_main_program())
+        fluid.memory_optimize(test_program)
+
+    # Init Parameters
+    place = fluid.CUDAPlace(0) if args.use_gpu else fluid.CPUPlace()
+    exe = fluid.Executor(place)
+    exe.run(fluid.default_startup_program())
+
+    # Prepare Data
+    reader = paddle.batch(train(), batch_size=args.batch_size_per_trainer)
+    feeder = fluid.DataFeeder(place=place, feed_list=[image, label])
+
+    t_consume = [0]
+    # Warm up
+    if args.warmup > 0:
+        print("----------Warm up(%d)----------" % (args.warmup))
+        for batch_id, data in enumerate(reader()):
+            with _time_record_(t_consume):
+                cost_val = exe.run(fetch_list=[avg_cost.name],
+                                   feed=feeder.feed(data))
+            print("batch_id:%d, cost: %f, time: %f, img/sec=%f" %
+                  (batch_id, cost_val[0], t_consume[0],
+                   args.batch_size / t_consume[0]))
+            if batch_id > args.warmup:
+                break
+
+    # Training and testing
+    print("----------Traine----------")
+    for batch_id, data in enumerate(reader()):
+        with _time_record_(t_consume):
+            cost_val = exe.run(fetch_list=[avg_cost.name],
+                               feed=feeder.feed(data))
+        print("batch_id: %d, cost:%f, time: %f, img/sec=%f" %
+              (batch_id, cost_val[0], t_consume[0],
+               args.batch_size / t_consume[0]))
+
+
 if __name__ == '__main__':
     args = parse_args()
 
@@ -279,8 +366,11 @@ if __name__ == '__main__':
         trainer_num = int(os.getenv("CPU_NUM"))
 
     args.batch_size = args.batch_size_per_trainer * trainer_num
-
     print_arguments(args)
     print("trainer_num=" + str(trainer_num))
 
-    train_parallel_exe(args)
+    if args.with_parallel_executor:
+        assert not args.test_fp16, "parallel_executor doesn't support fp16."
+        train_parallel_exe(args)
+    else:
+        train_executor(args)
